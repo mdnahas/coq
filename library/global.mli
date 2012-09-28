@@ -57,6 +57,7 @@ val add_include :
 val add_constraints : constraints -> unit
 
 val set_engagement : engagement -> unit
+val set_universe_consistency : bool -> unit
 
 (** {6 Interactive modules and module types }
    Both [start_*] functions take the [dir_path] argument to create a

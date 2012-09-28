@@ -27,7 +27,8 @@ type globals = {
 
 type stratification = {
   env_universes : universes;
-  env_engagement : engagement option
+  env_engagement : engagement option;
+  env_consistency : bool;
 }
 
 type val_kind =

@@ -621,6 +621,10 @@ let set_engagement c senv =
     env = Environ.set_engagement c senv.env;
     engagement = Some c }
 
+let set_universe_consistency b senv =
+  {senv with
+    env = Environ.set_universe_consistency b senv.env}
+
 (* Libraries = Compiled modules *)
 
 type compiled_library =

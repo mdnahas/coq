@@ -65,9 +65,10 @@ val add_modtype :
 val add_constraints :
   Univ.constraints -> safe_environment -> safe_environment
 
-(** Settin the strongly constructive or classical logical engagement *)
+(** Setting the strongly constructive or classical logical engagement *)
 val set_engagement : engagement -> safe_environment -> safe_environment
 
+val set_universe_consistency : bool -> safe_environment -> safe_environment
 
 (** {6 Interactive module functions } *)
 

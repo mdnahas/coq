@@ -167,6 +167,9 @@ let parse_args arglist =
     | "-impredicative-set" :: rem ->
         set_engagement Declarations.ImpredicativeSet; parse rem
 
+    | "-warn-universe-inconsistency" :: rem ->
+        Global.set_universe_consistency false; parse rem
+
     | ("-I"|"-include") :: d :: "-as" :: p :: rem -> set_include d p; parse rem
     | ("-I"|"-include") :: d :: "-as" :: [] -> usage ()
     | ("-I"|"-include") :: d :: rem -> set_default_include d; parse rem

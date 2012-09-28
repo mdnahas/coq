@@ -157,6 +157,10 @@ val add_constraints : Univ.constraints -> env -> env
 
 val set_engagement : engagement -> env -> env
 
+(* Warn or fail on universe inconsistencies *)
+val universe_consistency : env -> bool
+val set_universe_consistency : bool -> env -> env
+
 (** {6 Sets of referred section variables }
    [global_vars_set env c] returns the list of [id]'s occurring either
    directly as [Var id] in [c] or indirectly as a section variable

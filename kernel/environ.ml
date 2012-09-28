@@ -198,13 +198,32 @@ let add_mind kn mib env =
 
 (* Universe constraints *)
 
+let universe_consistency env = env.env_stratification.env_consistency
+
+let set_universe_consistency b env =
+  if not b || env.env_stratification.env_consistency then 
+    { env with env_stratification =
+     { env.env_stratification with env_consistency = b } }
+  else error "Cannot turn universe consistency checking back on"
+
+open Pp
+let warn_inconsistency o u v =
+  spc() ++ str "cannot enforce" ++ spc() ++ Univ.pr_uni u ++ spc() ++
+  str (match o with Univ.Lt -> "<" | Univ.Le -> "<=" | Univ.Eq -> "=")
+  ++ spc() ++ Univ.pr_uni v
+
+
 let add_constraints c env =
   if is_empty_constraint c then
     env
   else
     let s = env.env_stratification in
-    { env with env_stratification =
-      { s with env_universes = merge_constraints c s.env_universes } }
+      try 
+        { env with env_stratification =
+	{ s with env_universes = merge_constraints c s.env_universes } }
+      with UniverseInconsistency (cstr, u, v) when not (universe_consistency env) ->
+        msgnl (str"Universe inconsistency found: " ++ warn_inconsistency cstr u v);
+        env
 
 let set_engagement c env = (* Unsafe *)
   { env with env_stratification =

@@ -67,6 +67,8 @@ let add_constraints c = global_env := add_constraints c !global_env
 
 let set_engagement c = global_env := set_engagement c !global_env
 
+let set_universe_consistency b = global_env := set_universe_consistency b !global_env
+
 let add_include me is_module inl =
   let resolve,newenv = add_include me is_module inl !global_env in
     global_env := newenv;
