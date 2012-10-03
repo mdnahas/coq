@@ -128,9 +128,9 @@ let rec infos_and_sort env t =
     | _ -> (* don't fail if not positive, it is tested later *) []
 
 let is_small_univ u =
-  (* Compatibility with homotopy model where we interpret both Prop
-     and Set to have proof-irrelevant equality *)
-  is_type0m_univ u || is_type0_univ u
+  (* Compatibility with homotopy model where we interpret only Prop
+     to have proof-irrelevant equality. *)
+  is_type0m_univ u
 
 let small_unit constrsinfos arsign_lev =
   let issmall = List.for_all is_small constrsinfos in

@@ -64,6 +64,7 @@ let print_usage_channel co command =
 \n  -with-geoproof (yes|no) to (de)activate special functions for Geoproof within Coqide (default is yes)\
 \n  -impredicative-set     set sort Set impredicative\
 \n  -warn-universe-inconsistency  turn universe inconsistencies into warnings\
+\n  -relevant-equality     make proofs of equality informative\
 \n  -force-load-proofs     load opaque proofs in memory initially\
 
 \n  -lazy-load-proofs      load opaque proofs in memory by necessity (default)\
