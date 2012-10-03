@@ -164,8 +164,12 @@ let parse_args arglist =
 	else if s = "no" then Coq_config.with_geoproof := false
 	else usage ();
 	parse rem
+
     | "-impredicative-set" :: rem ->
         set_engagement Declarations.ImpredicativeSet; parse rem
+
+    | "-relevant-equality" :: rem ->
+        Indtypes.enforce_relevant_equality (); parse rem
 
     | "-warn-universe-inconsistency" :: rem ->
         Global.set_universe_consistency false; parse rem

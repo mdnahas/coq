@@ -18,6 +18,13 @@ open Reduction
 open Typeops
 open Entries
 
+(* Tell if indices (aka real arguments) contribute to size of inductive type *)
+(* If yes, this is compatible with the univalent model *)
+
+let relevant_equality = ref false
+
+let enforce_relevant_equality () = relevant_equality := true
+
 (* Same as noccur_between but may perform reductions.
    Could be refined more...  *)
 let weaker_noccur_between env x nvars t =
@@ -120,10 +127,20 @@ let rec infos_and_sort env t =
     | _ when is_constructor_head t -> []
     | _ -> (* don't fail if not positive, it is tested later *) []
 
-let small_unit constrsinfos =
-  let issmall = List.for_all is_small constrsinfos
-  and isunit = is_unit constrsinfos in
-  issmall, isunit
+let is_small_univ u =
+  (* Compatibility with homotopy model where we interpret both Prop
+     and Set to have proof-irrelevant equality *)
+  is_type0m_univ u || is_type0_univ u
+
+let small_unit constrsinfos arsign_lev =
+  let issmall = List.for_all is_small constrsinfos in
+  let issmall' =
+    if constrsinfos <> [] && !relevant_equality then
+      issmall && is_small_univ arsign_lev
+    else
+      issmall in
+  let isunit = is_unit constrsinfos in
+  issmall', isunit
 
 (* Computing the levels of polymorphic inductive types
 
@@ -145,16 +162,12 @@ let small_unit constrsinfos =
    w1,w2,w3 <= u3
 *)
 
-let extract_level (_,_,_,lc,lev) =
-  (* Enforce that the level is not in Prop if more than two constructors *)
-  if Array.length lc >= 2 then sup type0_univ lev else lev
-
 let inductive_levels arities inds =
-  let levels = Array.map pi3 arities in
-  let cstrs_levels = Array.map extract_level inds in
+  let levels = Array.map (fun (_,_,_,lev) -> lev) arities in
+  let levels_of_cstrs_packets = Array.map (fun (_,_,_,_,lev) -> lev) inds in
   (* Take the transitive closure of the system of constructors *)
   (* level constraints and remove the recursive dependencies *)
-  solve_constraints_system levels cstrs_levels
+  solve_constraints_system levels levels_of_cstrs_packets
 
 (* This (re)computes informations relevant to extraction and the sort of an
    arity or type constructor; we do not to recompute universes constraints *)
@@ -162,19 +175,34 @@ let inductive_levels arities inds =
 let constraint_list_union =
   List.fold_left union_constraints empty_constraint
 
-let infer_constructor_packet env_ar_par params lc =
+let constructor_packet_level jlc arsign_lev =
+  (* compute the max of the sorts of the products of the constructor type *)
+  let level = max_inductive_sort (Array.map (fun j -> j.utj_type) jlc) in
+  (* add the arity levels if equality is relevant *)
+  let level =
+    if jlc <> [||] && !relevant_equality then sup level arsign_lev else level in
+  (* Enforce that the level is not in Prop if more than two constructors *)
+  if Array.length jlc >= 2 then sup type0_univ level else level
+
+let infer_constructor_packet env_ar_par params arsign_lev lc =
   (* type-check the constructors *)
   let jlc,cstl = List.split (List.map (infer_type env_ar_par) lc) in
   let cst = constraint_list_union cstl in
   let jlc = Array.of_list jlc in
   (* generalize the constructor over the parameters *)
   let lc'' = Array.map (fun j -> it_mkProd_or_LetIn j.utj_val params) jlc in
-  (* compute the max of the sorts of the products of the constructor type *)
-  let level = max_inductive_sort (Array.map (fun j -> j.utj_type) jlc) in
-  (* compute *)
-  let info = small_unit (List.map (infos_and_sort env_ar_par) lc) in
-
+  (* compute the universe level of the packet *)
+  let level = constructor_packet_level jlc arsign_lev in
+  (* compute if small and if singleton *)
+  let info = small_unit (List.map (infos_and_sort env_ar_par) lc) arsign_lev in
   (info,lc'',level,cst)
+
+let cumulate_arity_large_levels env sign =
+  fst (List.fold_right
+    (fun (_,_,t as d) (lev,env) ->
+      let u = univ_of_sort (fst (infer_type env t)).utj_type in
+      ((if is_small_univ u then lev else sup u lev), push_rel d env))
+    sign (type0m_univ,env))
 
 (* Type-check an inductive definition. Does not check positivity
    conditions. *)
@@ -205,10 +233,12 @@ let typecheck_inductive env mie =
 	 let lev =
 	   (* Decide that if the conclusion is not explicitly Type *)
 	   (* then the inductive type is not polymorphic *)
-	   match kind_of_term ((strip_prod_assum arity.utj_val)) with
+	   match kind_of_term (strip_prod_assum arity.utj_val) with
 	   | Sort (Type u) -> Some u
 	   | _ -> None in
-         (cst,env_ar',(id,full_arity,lev)::l))
+         let arsign, _ = dest_arity env_params arity.utj_val in
+         let arsign_lev = cumulate_arity_large_levels env_params arsign in
+         (cst,env_ar',(id,full_arity,arsign_lev,lev)::l))
       (cst1,env,[])
       mie.mind_entry_inds in
 
@@ -221,9 +251,10 @@ let typecheck_inductive env mie =
   (* Now, we type the constructors (without params) *)
   let inds,cst =
     List.fold_right2
-      (fun ind arity_data (inds,cst) ->
+      (fun ind (_,_,arsign_lev,_ as arity_data) (inds,cst) ->
 	 let (info,lc',cstrs_univ,cst') =
-	   infer_constructor_packet env_ar_par params ind.mind_entry_lc in
+	   infer_constructor_packet env_ar_par params arsign_lev
+             ind.mind_entry_lc in
 	 let consnames = ind.mind_entry_consnames in
 	 let ind' = (arity_data,consnames,info,lc',cstrs_univ) in
 	 (ind'::inds, union_constraints cst cst'))
@@ -253,10 +284,10 @@ let typecheck_inductive env mie =
   (* Compute/check the sorts of the inductive types *)
   let ind_min_levels = inductive_levels arities inds in
   let inds, cst =
-    Array.fold_map2' (fun ((id,full_arity,ar_level),cn,info,lc,_) lev cst ->
+    Array.fold_map2' (fun ((id,full_arity,arsign_level,ind_level),cn,info,lc,_) lev cst ->
       let sign, s = dest_arity env full_arity in
       let status,cst = match s with
-      | Type u when ar_level <> None (* Explicitly polymorphic *)
+      | Type u when ind_level <> None (* Explicitly polymorphic *)
             && no_upper_constraints u cst ->
 	  (* The polymorphic level is a function of the level of the *)
 	  (* conclusions of the parameters *)
@@ -574,7 +605,12 @@ let allowed_sorts issmall isunit s =
   (* Unitary/empty Prop: elimination to all sorts are realizable *)
   (* unless the type is large. If it is large, forbids large elimination *)
   (* which otherwise allows to simulate the inconsistent system Type:Type *)
-  | InProp when isunit -> if issmall then all_sorts else small_sorts
+  (* If type is not small and additionally equality is relevant, forbids any *)
+  (* informative elimination too *)
+  | InProp when isunit ->
+      if issmall then all_sorts
+      else if !relevant_equality then logical_sorts
+      else small_sorts
 
   (* Other propositions: elimination only to Prop *)
   | InProp -> logical_sorts

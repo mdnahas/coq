@@ -94,6 +94,8 @@ exception SingletonInductiveBecomesProp of identifier
 val type_of_inductive_knowing_parameters : ?polyprop:bool ->
   env -> one_inductive_body -> types array -> types
 
+val univ_of_sort : sorts -> universe
+
 val max_inductive_sort : sorts array -> universe
 
 val instantiate_universes : env -> rel_context ->
