@@ -357,11 +357,18 @@ let type_fixpoint env lna lar vdefj =
 (************************************************************************)
 (************************************************************************)
 
+open Pp
+
 (* This combinator adds the universe constraints both in the local
    graph and in the universes of the environment. This is to ensure
    that the infered local graph is satisfiable. *)
-let univ_combinator (cst,univ) (j,c') =
-  (j,(union_constraints cst c', merge_constraints c' univ))
+let univ_combinator env (cst,univ) (j,c') =
+  try
+    (j,(union_constraints cst c', merge_constraints c' univ))
+  with UniverseInconsistency (cstr, u, v) when not (universe_consistency env) ->
+    msgnl (str"Universe inconsistency found: " ++ warn_inconsistency cstr u v);
+    (j,(cst,univ))
+
 
 (* The typing machine. *)
     (* ATTENTION : faudra faire le typage du contexte des Const,
@@ -400,7 +407,7 @@ let rec execute env cstr cu =
 		(* No sort-polymorphism *)
 		execute env f cu1
 	in
-	univ_combinator cu2 (judge_of_apply env j jl)
+	univ_combinator env cu2 (judge_of_apply env j jl)
 
     | Lambda (name,c1,c2) ->
         let (varj,cu1) = execute_type env c1 cu in
@@ -418,7 +425,7 @@ let rec execute env cstr cu =
         let (j1,cu1) = execute env c1 cu in
         let (j2,cu2) = execute_type env c2 cu1 in
         let (_,cu3) =
-	  univ_combinator cu2 (judge_of_cast env j1 DEFAULTcast j2) in
+	  univ_combinator env cu2 (judge_of_cast env j1 DEFAULTcast j2) in
         let env1 = push_rel (name,Some j1.uj_val,j2.utj_val) env in
         let (j',cu4) = execute env1 c3 cu3 in
         (judge_of_letin env name j1 j2 j', cu4)
@@ -426,7 +433,7 @@ let rec execute env cstr cu =
     | Cast (c,k, t) ->
         let (cj,cu1) = execute env c cu in
         let (tj,cu2) = execute_type env t cu1 in
-	univ_combinator cu2
+	univ_combinator env cu2
           (judge_of_cast env cj k tj)
 
     (* Inductive types *)
@@ -440,7 +447,7 @@ let rec execute env cstr cu =
         let (cj,cu1) = execute env c cu in
         let (pj,cu2) = execute env p cu1 in
         let (lfj,cu3) = execute_array env lf cu2 in
-        univ_combinator cu3
+        univ_combinator env cu3
           (judge_of_case env ci pj cj lfj)
 
     | Fix ((vn,i as vni),recdef) ->
@@ -473,7 +480,7 @@ and execute_recdef env (names,lar,vdef) i cu =
   let (vdefj,cu2) = execute_array env1 vdef cu1 in
   let vdefv = Array.map j_val vdefj in
   let cst = type_fixpoint env1 names lara vdefj in
-  univ_combinator cu2
+  univ_combinator env cu2
     ((lara.(i),(names,lara,vdefv)),cst)
 
 and execute_array env = Array.fold_map' (execute env)
