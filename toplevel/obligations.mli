@@ -25,7 +25,7 @@ val declare_fix_ref : (definition_object_kind -> identifier ->
   constr -> types -> Impargs.manual_implicits -> global_reference) ref
 
 val declare_definition_ref :
-  (identifier -> locality * definition_object_kind ->
+  (identifier -> definition_kind ->
      Entries.definition_entry -> Impargs.manual_implicits
        -> global_reference declaration_hook -> global_reference) ref
 
