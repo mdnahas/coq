@@ -70,10 +70,7 @@ module PrintingInductiveMake =
   struct
     type t = inductive
     let encode = Test.encode
-    let subst subst (kn, ints as obj) =
-      let kn' = subst_ind subst kn in
-	if kn' == kn then obj else
-	  kn', ints
+    let subst = subst_ind
     let printer ind = pr_global_env Idset.empty (IndRef ind)
     let key = ["Printing";Test.field]
     let title = Test.title
@@ -406,13 +403,14 @@ let rec detype (isgoal:bool) avoid env t =
     | App (f,args) ->
 	GApp (dl,detype isgoal avoid env f,
               Array.map_to_list (detype isgoal avoid env) args)
-    | Const sp -> GRef (dl, ConstRef sp)
+	(* FIXME, should we really forget universes here ? *)
+    | Const (sp,u) -> GRef (dl, ConstRef sp)
     | Evar (ev,cl) ->
         GEvar (dl, ev,
                Some (List.map (detype isgoal avoid env) (Array.to_list cl)))
-    | Ind ind_sp ->
+    | Ind (ind_sp,u) ->
 	GRef (dl, IndRef ind_sp)
-    | Construct cstr_sp ->
+    | Construct (cstr_sp,u) ->
 	GRef (dl, ConstructRef cstr_sp)
     | Case (ci,p,c,bl) ->
 	let comp = computable p (ci.ci_pp_info.ind_nargs) in
@@ -578,7 +576,7 @@ let rec subst_cases_pattern subst pat =
   match pat with
   | PatVar _ -> pat
   | PatCstr (loc,((kn,i),j),cpl,n) ->
-      let kn' = subst_ind subst kn
+      let kn' = subst_mind subst kn
       and cpl' = List.smartmap (subst_cases_pattern subst) cpl in
 	if kn' == kn && cpl' == cpl then pat else
 	  PatCstr (loc,((kn',i),j),cpl',n)
@@ -622,7 +620,7 @@ let rec subst_glob_constr subst raw =
         let (n,topt) = x in
         let topt' = Option.smartmap
           (fun (loc,(sp,i),y as t) ->
-            let sp' = subst_ind subst sp in
+            let sp' = subst_mind subst sp in
             if sp == sp' then t else (loc,(sp',i),y)) topt in
         if a == a' && topt == topt' then y else (a',(n,topt'))) rl
       and branches' = List.smartmap
