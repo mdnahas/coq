@@ -246,7 +246,7 @@ let contract_cofix (bodynum,(types,names,bodies as typedbodies)) =
 
 let reduce_mind_case mia =
   match kind_of_term mia.mconstr with
-    | Construct (ind_sp,i) ->
+    | Construct ((ind_sp,i),u) ->
 (*	let ncargs = (fst mia.mci).(i-1) in*)
 	let real_cargs = List.skipn mia.mci.ci_npar mia.mcargs in
         applist (mia.mlf.(i-1),real_cargs)
@@ -299,9 +299,9 @@ let rec whd_state_gen flags ts env sigma =
 	  (match safe_meta_value sigma ev with
 	     | Some body -> whrec (body, stack)
 	     | None -> s)
-      | Const const when is_transparent_constant ts const ->
-	  (match constant_opt_value env const with
-	     | Some  body -> whrec (body, stack)
+      | Const (const,u as cu) when is_transparent_constant ts const ->
+	  (match constant_opt_value_inenv env cu with
+	     | Some body -> whrec (body, stack)
 	     | None -> s)
       | LetIn (_,b,_,c) when red_zeta flags -> stacklam whrec [b] c stack
       | Cast (c,_,_) -> whrec (c, stack)
@@ -335,12 +335,12 @@ let rec whd_state_gen flags ts env sigma =
 	  |None -> s
 	  |Some (bef,arg,s') -> whrec (arg, Zfix(f,bef)::s'))
 
-      | Construct (ind,c) ->
+      | Construct ((ind,c),u) ->
 	if red_iota flags then
 	  match strip_app stack with
-	  |args, (Zcase(ci, _, lf)::s') ->
+	  | args, (Zcase(ci, _, lf)::s') ->
 	    whrec (lf.(c-1), append_stack_app_list (List.skipn ci.ci_npar args) s')
-	  |args, (Zfix (f,s')::s'') ->
+	  | args, (Zfix (f,s')::s'') ->
 	    let x' = applist(x,args) in
 	    whrec (contract_fix f,append_stack_app_list s' (append_stack_app_list [x'] s''))
 	  |_ -> s
@@ -401,7 +401,7 @@ let local_whd_state_gen flags sigma =
               Some c -> whrec (c,stack)
             | None -> s)
 
-      | Construct (ind,c) ->
+      | Construct ((ind,c),u) ->
 	if red_iota flags then
 	  match strip_app stack with
 	  |args, (Zcase(ci, _, lf)::s') ->
@@ -588,7 +588,7 @@ let whd_betaiota_preserving_vm_cast env sigma t =
        | Case (ci,p,d,lf) ->
 	 whrec (d, Zcase (ci,p,lf) :: stack)
 
-       | Construct (ind,c) -> begin
+       | Construct ((ind,c),u) -> begin
 	 match strip_app stack with
 	   |args, (Zcase(ci, _, lf)::s') ->
 	     whrec (lf.(c-1), append_stack_app_list (List.skipn ci.ci_npar args) s')
@@ -888,7 +888,7 @@ let whd_programs_stack env sigma =
 	(match strip_n_app ri.(n) stack with
 	  |None -> s
 	  |Some (bef,arg,s') -> whrec (arg, Zfix(f,bef)::s'))
-      | Construct (ind,c) -> begin
+      | Construct ((ind,c),u) -> begin
 	match strip_app stack with
 	  |args, (Zcase(ci, _, lf)::s') ->
 	    whrec (lf.(c-1), append_stack_app_list (List.skipn ci.ci_npar args) s')
@@ -992,11 +992,11 @@ let meta_reducible_instance evd b =
 
 
 let head_unfold_under_prod ts env _ c =
-  let unfold cst =
+  let unfold (cst,u as cstu) =
     if Cpred.mem cst (snd ts) then
-      match constant_opt_value env cst with
+      match constant_opt_value_inenv env cstu with
 	| Some c -> c
-	| None -> mkConst cst
+	| None -> mkConstU cstu
     else mkConst cst in
   let rec aux c =
     match kind_of_term c with

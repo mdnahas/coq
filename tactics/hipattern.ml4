@@ -46,7 +46,7 @@ let match_with_non_recursive_type t =
     | App _ ->
         let (hdapp,args) = decompose_app t in
         (match kind_of_term hdapp with
-           | Ind ind ->
+           | Ind (ind,u) ->
                if not (Global.lookup_mind (fst ind)).mind_finite then
 		 Some (hdapp,args)
 	       else
@@ -78,9 +78,9 @@ let match_with_one_constructor style onlybinary allow_rec t =
   let (hdapp,args) = decompose_app t in
   let res = match kind_of_term hdapp with
   | Ind ind ->
-      let (mib,mip) = Global.lookup_inductive ind in
+      let (mib,mip) = Global.lookup_inductive (fst ind) in
       if (Array.length mip.mind_consnames = 1)
-	&& (allow_rec or not (mis_is_recursive (ind,mib,mip)))
+	&& (allow_rec or not (mis_is_recursive (fst ind,mib,mip)))
         && (mip.mind_nrealargs = 0)
       then
 	if style = Some true (* strict conjunction *) then
@@ -124,8 +124,8 @@ let match_with_tuple t =
   let t = match_with_one_constructor None false true t in
   Option.map (fun (hd,l) ->
     let ind = destInd hd in
-    let (mib,mip) = Global.lookup_inductive ind in
-    let isrec = mis_is_recursive (ind,mib,mip) in
+    let (mib,mip) = Global.lookup_pinductive ind in
+    let isrec = mis_is_recursive (fst ind,mib,mip) in
     (hd,l,isrec)) t
 
 let is_tuple t =
@@ -145,7 +145,7 @@ let test_strict_disjunction n lc =
 let match_with_disjunction ?(strict=false) ?(onlybinary=false) t =
   let (hdapp,args) = decompose_app t in
   let res = match kind_of_term hdapp with
-  | Ind ind  ->
+  | Ind (ind,u)  ->
       let car = mis_constr_nargs ind in
       let (mib,mip) = Global.lookup_inductive ind in
       if Array.for_all (fun ar -> ar = 1) car
@@ -179,7 +179,7 @@ let match_with_empty_type t =
   let (hdapp,args) = decompose_app t in
   match (kind_of_term hdapp) with
     | Ind ind ->
-        let (mib,mip) = Global.lookup_inductive ind in
+        let (mib,mip) = Global.lookup_pinductive ind in
         let nconstr = Array.length mip.mind_consnames in
 	if nconstr = 0 then Some hdapp else None
     | _ ->  None
@@ -193,7 +193,7 @@ let match_with_unit_or_eq_type t =
   let (hdapp,args) = decompose_app t in
   match (kind_of_term hdapp) with
     | Ind ind  ->
-        let (mib,mip) = Global.lookup_inductive ind in
+        let (mib,mip) = Global.lookup_pinductive ind in
         let constr_types = mip.mind_nf_lc in
         let nconstr = Array.length mip.mind_consnames in
         let zero_args c = nb_prod c = mib.mind_nparams in
@@ -235,7 +235,7 @@ let match_with_equation t =
   if not (isApp t) then raise NoEquationFound;
   let (hdapp,args) = destApp t in
   match kind_of_term hdapp with
-  | Ind ind ->
+  | Ind (ind,u) ->
       if IndRef ind = glob_eq then
 	Some (build_coq_eq_data()),hdapp,
 	PolymorphicLeibnizEq(args.(0),args.(1),args.(2))
@@ -268,7 +268,7 @@ let is_inductive_equality ind =
 let match_with_equality_type t =
   let (hdapp,args) = decompose_app t in
   match (kind_of_term hdapp) with
-  | Ind ind when is_inductive_equality ind -> Some (hdapp,args)
+  | Ind (ind,_) when is_inductive_equality ind -> Some (hdapp,args)
   | _ -> None
 
 let is_equality_type t = op2bool (match_with_equality_type t)
@@ -306,7 +306,7 @@ let match_with_nodep_ind t =
   let (hdapp,args) = decompose_app t in
     match (kind_of_term hdapp) with
       | Ind ind  ->
-          let (mib,mip) = Global.lookup_inductive ind in
+          let (mib,mip) = Global.lookup_pinductive ind in
 	    if Array.length (mib.mind_packets)>1 then None else
 	      let nodep_constr = has_nodep_prod_after mib.mind_nparams in
 		if Array.for_all nodep_constr mip.mind_nf_lc then
@@ -324,7 +324,7 @@ let match_with_sigma_type t=
   let (hdapp,args) = decompose_app t in
   match (kind_of_term hdapp) with
     | Ind ind  ->
-        let (mib,mip) = Global.lookup_inductive ind in
+        let (mib,mip) = Global.lookup_pinductive ind in
           if (Array.length (mib.mind_packets)=1) &&
 	    (mip.mind_nrealargs=0) &&
 	    (Array.length mip.mind_consnames=1) &&

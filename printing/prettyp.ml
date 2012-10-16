@@ -405,9 +405,7 @@ let print_body = function
 let print_typed_body (val_0,typ) =
   (print_body val_0 ++ fnl () ++ str "     : " ++ pr_ltype typ)
 
-let ungeneralized_type_of_constant_type = function
-  | PolymorphicArity (ctx,a) -> mkArity (ctx, Type a.poly_level)
-  | NonPolymorphicType t -> t
+let ungeneralized_type_of_constant_type t = t
 
 let print_constant with_values sep sp =
   let cb = Global.lookup_constant sp in
@@ -661,7 +659,7 @@ let print_opaque_name qid =
     | IndRef (sp,_) ->
         print_inductive sp
     | ConstructRef cstr ->
-	let ty = Inductiveops.type_of_constructor env cstr in
+	let ty = Inductiveops.type_of_constructor env (cstr,[]) in
 	print_typed_value (mkConstruct cstr, ty)
     | VarRef id ->
         let (_,c,ty) = lookup_named id env in

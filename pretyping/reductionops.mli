@@ -184,7 +184,7 @@ val contract_fix : fixpoint -> Term.constr
 val fix_recarg : fixpoint -> constr stack -> (int * constr) option
 
 (** {6 Querying the kernel conversion oracle: opaque/transparent constants } *)
-val is_transparent : 'a tableKey -> bool
+val is_transparent : constant tableKey -> bool
 
 (** {6 Conversion Functions (uses closures, lazy strategy) } *)
 
