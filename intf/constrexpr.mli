@@ -62,13 +62,13 @@ and cases_pattern_notation_substitution =
     cases_pattern_expr list list  (** for recursive notations *)
 
 type constr_expr =
-  | CRef of reference
+  | CRef of reference * Univ.universe_list option
   | CFix of Loc.t * identifier located * fix_expr list
   | CCoFix of Loc.t * identifier located * cofix_expr list
   | CProdN of Loc.t * (name located list * binder_kind * constr_expr) list * constr_expr
   | CLambdaN of Loc.t * (name located list * binder_kind * constr_expr) list * constr_expr
   | CLetIn of Loc.t * name located * constr_expr * constr_expr
-  | CAppExpl of Loc.t * (proj_flag * reference) * constr_expr list
+  | CAppExpl of Loc.t * (proj_flag * reference * Univ.universe_list option) * constr_expr list
   | CApp of Loc.t * (proj_flag * constr_expr) *
       (constr_expr * explicitation located option) list
   | CRecord of Loc.t * constr_expr option * (reference * constr_expr) list
