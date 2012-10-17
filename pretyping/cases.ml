@@ -1904,7 +1904,7 @@ let vars_of_ctx ctx =
 	| Some t' when kind_of_term t' = Rel 0 ->
 	    prev,
 	    (GApp (Loc.ghost,
-		(GRef (Loc.ghost, delayed_force coq_eq_refl_ref)), 
+		(GRef (Loc.ghost, delayed_force coq_eq_refl_ref, None)), 
 		   [hole; GVar (Loc.ghost, prev)])) :: vars
 	| _ ->
 	    match na with

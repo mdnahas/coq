@@ -165,6 +165,345 @@ let coerce_to_tactic loc id = function
   | _ -> user_err_loc
   (loc, "", str "Variable " ++ pr_id id ++ str " should be bound to a tactic.")
 
+<<<<<<< HEAD
+=======
+(*****************)
+(* Globalization *)
+(*****************)
+
+(* We have identifier <| global_reference <| constr *)
+
+let find_ident id ist =
+  List.mem id (fst ist.ltacvars) or
+  List.mem id (ids_of_named_context (Environ.named_context ist.genv))
+
+let find_recvar qid ist = List.assoc qid ist.ltacrecvars
+
+(* a "var" is a ltac var or a var introduced by an intro tactic *)
+let find_var id ist = List.mem id (fst ist.ltacvars)
+
+(* a "ctxvar" is a var introduced by an intro tactic (Intro/LetTac/...) *)
+let find_ctxvar id ist = List.mem id (snd ist.ltacvars)
+
+(* a "ltacvar" is an ltac var (Let-In/Fun/...) *)
+let find_ltacvar id ist = find_var id ist & not (find_ctxvar id ist)
+
+let find_hyp id ist =
+  List.mem id (ids_of_named_context (Environ.named_context ist.genv))
+
+(* Globalize a name introduced by Intro/LetTac/... ; it is allowed to *)
+(* be fresh in which case it is binding later on *)
+let intern_ident l ist id =
+  (* We use identifier both for variables and new names; thus nothing to do *)
+  if not (find_ident id ist) then l:=(id::fst !l,id::snd !l);
+  id
+
+let intern_name l ist = function
+  | Anonymous -> Anonymous
+  | Name id -> Name (intern_ident l ist id)
+
+let strict_check = ref false
+
+let adjust_loc loc = if !strict_check then dloc else loc
+
+(* Globalize a name which must be bound -- actually just check it is bound *)
+let intern_hyp ist (loc,id as locid) =
+  if not !strict_check then
+    locid
+  else if find_ident id ist then
+    (dloc,id)
+  else
+    Pretype_errors.error_var_not_found_loc loc id
+
+let intern_hyp_or_metaid ist id = intern_hyp ist (skip_metaid id)
+
+let intern_or_var ist = function
+  | ArgVar locid -> ArgVar (intern_hyp ist locid)
+  | ArgArg _ as x -> x
+
+let intern_inductive_or_by_notation = smart_global_inductive
+
+let intern_inductive ist = function
+  | AN (Ident (loc,id)) when find_var id ist -> ArgVar (loc,id)
+  | r -> ArgArg (intern_inductive_or_by_notation r)
+
+let intern_global_reference ist = function
+  | Ident (loc,id) when find_var id ist -> ArgVar (loc,id)
+  | r ->
+      let loc,_ as lqid = qualid_of_reference r in
+      try ArgArg (loc,locate_global_with_alias lqid)
+      with Not_found ->
+	error_global_not_found_loc lqid
+
+let intern_ltac_variable ist = function
+  | Ident (loc,id) ->
+      if find_ltacvar id ist then
+	(* A local variable of any type *)
+	ArgVar (loc,id)
+      else
+      (* A recursive variable *)
+      ArgArg (loc,find_recvar id ist)
+  | _ ->
+      raise Not_found
+
+let intern_constr_reference strict ist = function
+  | Ident (_,id) as r when not strict & find_hyp id ist ->
+      GVar (dloc,id), Some (CRef (r,None))
+  | Ident (_,id) as r when find_ctxvar id ist ->
+      GVar (dloc,id), if strict then None else Some (CRef (r,None))
+  | r ->
+      let loc,_ as lqid = qualid_of_reference r in
+      GRef (loc,locate_global_with_alias lqid,None), if strict then None else Some (CRef (r,None))
+
+let intern_move_location ist = function
+  | MoveAfter id -> MoveAfter (intern_hyp_or_metaid ist id)
+  | MoveBefore id -> MoveBefore (intern_hyp_or_metaid ist id)
+  | MoveFirst -> MoveFirst
+  | MoveLast -> MoveLast
+
+(* Internalize an isolated reference in position of tactic *)
+
+let intern_isolated_global_tactic_reference r =
+  let (loc,qid) = qualid_of_reference r in
+  try TacCall (loc,ArgArg (loc,locate_tactic qid),[])
+  with Not_found ->
+  match r with
+  | Ident (_,id) -> Tacexp (lookup_atomic id)
+  | _ -> raise Not_found
+
+let intern_isolated_tactic_reference strict ist r =
+  (* An ltac reference *)
+  try Reference (intern_ltac_variable ist r)
+  with Not_found ->
+  (* A global tactic *)
+  try intern_isolated_global_tactic_reference r
+  with Not_found ->
+  (* Tolerance for compatibility, allow not to use "constr:" *)
+  try ConstrMayEval (ConstrTerm (intern_constr_reference strict ist r))
+  with Not_found ->
+  (* Reference not found *)
+  error_global_not_found_loc (qualid_of_reference r)
+
+(* Internalize an applied tactic reference *)
+
+let intern_applied_global_tactic_reference r =
+  let (loc,qid) = qualid_of_reference r in
+  ArgArg (loc,locate_tactic qid)
+
+let intern_applied_tactic_reference ist r =
+  (* An ltac reference *)
+  try intern_ltac_variable ist r
+  with Not_found ->
+  (* A global tactic *)
+  try intern_applied_global_tactic_reference r
+  with Not_found ->
+  (* Reference not found *)
+  error_global_not_found_loc (qualid_of_reference r)
+
+(* Intern a reference parsed in a non-tactic entry *)
+
+let intern_non_tactic_reference strict ist r =
+  (* An ltac reference *)
+  try Reference (intern_ltac_variable ist r)
+  with Not_found ->
+  (* A constr reference *)
+  try ConstrMayEval (ConstrTerm (intern_constr_reference strict ist r))
+  with Not_found ->
+  (* Tolerance for compatibility, allow not to use "ltac:" *)
+  try intern_isolated_global_tactic_reference r
+  with Not_found ->
+  (* By convention, use IntroIdentifier for unbound ident, when not in a def *)
+  match r with
+  | Ident (loc,id) when not strict -> IntroPattern (loc,IntroIdentifier id)
+  | _ ->
+  (* Reference not found *)
+  error_global_not_found_loc (qualid_of_reference r)
+
+let intern_message_token ist = function
+  | (MsgString _ | MsgInt _ as x) -> x
+  | MsgIdent id -> MsgIdent (intern_hyp_or_metaid ist id)
+
+let intern_message ist = List.map (intern_message_token ist)
+
+let rec intern_intro_pattern lf ist = function
+  | loc, IntroOrAndPattern l ->
+      loc, IntroOrAndPattern (intern_or_and_intro_pattern lf ist l)
+  | loc, IntroIdentifier id ->
+      loc, IntroIdentifier (intern_ident lf ist id)
+  | loc, IntroFresh id ->
+      loc, IntroFresh (intern_ident lf ist id)
+  | loc, (IntroWildcard | IntroAnonymous | IntroRewrite _ | IntroForthcoming _)
+      as x -> x
+
+and intern_or_and_intro_pattern lf ist =
+  List.map (List.map (intern_intro_pattern lf ist))
+
+let intern_quantified_hypothesis ist = function
+  | AnonHyp n -> AnonHyp n
+  | NamedHyp id ->
+      (* Uncomment to disallow "intros until n" in ltac when n is not bound *)
+      NamedHyp ((*snd (intern_hyp ist (dloc,*)id(* ))*))
+
+let intern_binding_name ist x =
+  (* We use identifier both for variables and binding names *)
+  (* Todo: consider the body of the lemma to which the binding refer
+     and if a term w/o ltac vars, check the name is indeed quantified *)
+  x
+
+let intern_constr_gen allow_patvar isarity {ltacvars=lfun; gsigma=sigma; genv=env} c =
+  let warn = if !strict_check then fun x -> x else Constrintern.for_grammar in
+  let c' =
+    warn (Constrintern.intern_gen isarity ~allow_patvar ~ltacvars:(fst lfun,[]) sigma env) c
+  in
+  (c',if !strict_check then None else Some c)
+
+let intern_constr = intern_constr_gen false false
+let intern_type = intern_constr_gen false true
+
+(* Globalize bindings *)
+let intern_binding ist (loc,b,c) =
+  (loc,intern_binding_name ist b,intern_constr ist c)
+
+let intern_bindings ist = function
+  | NoBindings -> NoBindings
+  | ImplicitBindings l -> ImplicitBindings (List.map (intern_constr ist) l)
+  | ExplicitBindings l -> ExplicitBindings (List.map (intern_binding ist) l)
+
+let intern_constr_with_bindings ist (c,bl) =
+  (intern_constr ist c, intern_bindings ist bl)
+
+  (* TODO: catch ltac vars *)
+let intern_induction_arg ist = function
+  | ElimOnConstr c -> ElimOnConstr (intern_constr_with_bindings ist c)
+  | ElimOnAnonHyp n as x -> x
+  | ElimOnIdent (loc,id) ->
+      if !strict_check then
+	(* If in a defined tactic, no intros-until *)
+	match intern_constr ist (CRef (Ident (dloc,id),None)) with
+	| GVar (loc,id),_ -> ElimOnIdent (loc,id)
+	| c -> ElimOnConstr (c,NoBindings)
+      else
+	ElimOnIdent (loc,id)
+
+let short_name = function
+  | AN (Ident (loc,id)) when not !strict_check -> Some (loc,id)
+  | _ -> None
+
+let intern_evaluable_global_reference ist r =
+  let lqid = qualid_of_reference r in
+  try evaluable_of_global_reference ist.genv (locate_global_with_alias lqid)
+  with Not_found ->
+  match r with
+  | Ident (loc,id) when not !strict_check -> EvalVarRef id
+  | _ -> error_global_not_found_loc lqid
+
+let intern_evaluable_reference_or_by_notation ist = function
+  | AN r -> intern_evaluable_global_reference ist r
+  | ByNotation (loc,ntn,sc) ->
+      evaluable_of_global_reference ist.genv
+      (Notation.interp_notation_as_global_reference loc
+        (function ConstRef _ | VarRef _ -> true | _ -> false) ntn sc)
+
+(* Globalize a reduction expression *)
+let intern_evaluable ist = function
+  | AN (Ident (loc,id)) when find_ltacvar id ist -> ArgVar (loc,id)
+  | AN (Ident (loc,id)) when not !strict_check & find_hyp id ist ->
+      ArgArg (EvalVarRef id, Some (loc,id))
+  | AN (Ident (loc,id)) when find_ctxvar id ist ->
+      ArgArg (EvalVarRef id, if !strict_check then None else Some (loc,id))
+  | r ->
+      let e = intern_evaluable_reference_or_by_notation ist r in
+      let na = short_name r in
+      ArgArg (e,na)
+
+let intern_unfold ist (l,qid) = (l,intern_evaluable ist qid)
+
+let intern_flag ist red =
+  { red with rConst = List.map (intern_evaluable ist) red.rConst }
+
+let intern_constr_with_occurrences ist (l,c) = (l,intern_constr ist c)
+
+let intern_constr_pattern ist ltacvars pc =
+  let metas,pat =
+    Constrintern.intern_constr_pattern ist.gsigma ist.genv ~ltacvars pc in
+  let c = intern_constr_gen true false ist pc in
+  metas,(c,pat)
+
+let intern_typed_pattern ist p =
+  let dummy_pat = PRel 0 in
+  (* we cannot ensure in non strict mode that the pattern is closed *)
+  (* keeping a constr_expr copy is too complicated and we want anyway to *)
+  (* type it, so we remember the pattern as a glob_constr only *)
+  (intern_constr_gen true false ist p,dummy_pat)
+
+let intern_typed_pattern_with_occurrences ist (l,p) =
+  (l,intern_typed_pattern ist p)
+
+(* This seems fairly hacky, but it's the first way I've found to get proper
+   globalization of [unfold].  --adamc *)
+let dump_glob_red_expr = function
+  | Unfold occs -> List.iter (fun (_, r) ->
+    try
+      Dumpglob.add_glob (loc_of_or_by_notation Libnames.loc_of_reference r)
+	(Smartlocate.smart_global r)
+    with _ -> ()) occs
+  | Cbv grf | Lazy grf ->
+    List.iter (fun r ->
+      try
+        Dumpglob.add_glob (loc_of_or_by_notation Libnames.loc_of_reference r)
+	  (Smartlocate.smart_global r)
+      with _ -> ()) grf.rConst
+  | _ -> ()
+
+let intern_red_expr ist = function
+  | Unfold l -> Unfold (List.map (intern_unfold ist) l)
+  | Fold l -> Fold (List.map (intern_constr ist) l)
+  | Cbv f -> Cbv (intern_flag ist f)
+  | Lazy f -> Lazy (intern_flag ist f)
+  | Pattern l -> Pattern (List.map (intern_constr_with_occurrences ist) l)
+  | Simpl o -> Simpl (Option.map (intern_typed_pattern_with_occurrences ist) o)
+  | CbvVm o -> CbvVm (Option.map (intern_typed_pattern_with_occurrences ist) o)
+  | (Red _ | Hnf | ExtraRedExpr _ as r ) -> r
+
+let intern_in_hyp_as ist lf (id,ipat) =
+  (intern_hyp_or_metaid ist id, Option.map (intern_intro_pattern lf ist) ipat)
+
+let intern_hyp_list ist = List.map (intern_hyp_or_metaid ist)
+
+let intern_inversion_strength lf ist = function
+  | NonDepInversion (k,idl,ids) ->
+      NonDepInversion (k,intern_hyp_list ist idl,
+      Option.map (intern_intro_pattern lf ist) ids)
+  | DepInversion (k,copt,ids) ->
+      DepInversion (k, Option.map (intern_constr ist) copt,
+      Option.map (intern_intro_pattern lf ist) ids)
+  | InversionUsing (c,idl) ->
+      InversionUsing (intern_constr ist c, intern_hyp_list ist idl)
+
+(* Interprets an hypothesis name *)
+let intern_hyp_location ist ((occs,id),hl) =
+  ((Locusops.occurrences_map (List.map (intern_or_var ist)) occs,
+   intern_hyp_or_metaid ist id), hl)
+
+(* Reads a pattern *)
+let intern_pattern ist ?(as_type=false) lfun = function
+  | Subterm (b,ido,pc) ->
+      let ltacvars = (lfun,[]) in
+      let (metas,pc) = intern_constr_pattern ist ltacvars pc in
+      ido, metas, Subterm (b,ido,pc)
+  | Term pc ->
+      let ltacvars = (lfun,[]) in
+      let (metas,pc) = intern_constr_pattern ist ltacvars pc in
+      None, metas, Term pc
+
+let intern_constr_may_eval ist = function
+  | ConstrEval (r,c) -> ConstrEval (intern_red_expr ist r,intern_constr ist c)
+  | ConstrContext (locid,c) ->
+      ConstrContext (intern_hyp ist locid,intern_constr ist c)
+  | ConstrTypeOf c -> ConstrTypeOf (intern_constr ist c)
+  | ConstrTerm c -> ConstrTerm (intern_constr ist c)
+
+>>>>>>> - Add externalisation code for universe level instances.
 (* External tactics *)
 let print_xml_term = ref (fun _ -> failwith "print_xml_term unset")
 let declare_xml_printer f = print_xml_term := f
@@ -791,7 +1130,7 @@ let interp_induction_arg ist gl arg =
 	if Tactics.is_quantified_hypothesis id gl then
           ElimOnIdent (loc,id)
 	else
-          let c = (GVar (loc,id),Some (CRef (Ident (loc,id)))) in
+          let c = (GVar (loc,id),Some (CRef (Ident (loc,id),None))) in
           let (sigma,c) = interp_constr ist env sigma c in
           ElimOnConstr (sigma,(c,NoBindings))
 

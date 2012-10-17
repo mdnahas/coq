@@ -18,7 +18,7 @@ open Pfedit
 (** A hook start_proof calls on the type of the definition being started *)
 val set_start_hook : (types -> unit) -> unit
 
-val start_proof : identifier -> goal_kind -> types ->
+val start_proof : identifier -> goal_kind -> types Univ.in_universe_context_set ->
   ?init_tac:tactic -> ?compute_guard:lemma_possible_guards -> 
    unit declaration_hook -> unit
 
@@ -28,7 +28,8 @@ val start_proof_com : goal_kind ->
 
 val start_proof_with_initialization : 
   goal_kind -> (bool * lemma_possible_guards * tactic list option) option ->
-  (identifier * (types * (name list * Impargs.manual_explicitation list))) list
+  (identifier * (types Univ.in_universe_context_set *
+		 (name list * Impargs.manual_explicitation list))) list
   -> int list option -> unit declaration_hook -> unit
 
 (** A hook the next three functions pass to cook_proof *)
