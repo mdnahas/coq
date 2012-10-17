@@ -189,7 +189,7 @@ let same_id (id1, c1) (id2, c2) =
 
 let rec check_same_type ty1 ty2 =
   match ty1, ty2 with
-  | CRef r1, CRef r2 -> check_same_ref r1 r2
+  | CRef (r1,_), CRef (r2,_) -> check_same_ref r1 r2
   | CFix(_,id1,fl1), CFix(_,id2,fl2) when eq_located id_eq id1 id2 ->
       List.iter2 (fun ((_, id1),i1,bl1,a1,b1) ((_, id2),i2,bl2,a2,b2) ->
         if not (id_eq id1 id2) || not (same_id i1 i2) then failwith "not same fix";
@@ -213,7 +213,8 @@ let rec check_same_type ty1 ty2 =
   | CLetIn(_,(_,na1),a1,b1), CLetIn(_,(_,na2),a2,b2) when name_eq na1 na2 ->
       check_same_type a1 a2;
       check_same_type b1 b2
-  | CAppExpl(_,(proj1,r1),al1), CAppExpl(_,(proj2,r2),al2) when Option.Misc.compare Int.equal proj1 proj2 ->
+  | CAppExpl(_,(proj1,r1,_),al1), CAppExpl(_,(proj2,r2,_),al2) when 
+     Option.Misc.compare Int.equal proj1 proj2 ->
       check_same_ref r1 r2;
       List.iter2 check_same_type al1 al2
   | CApp(_,(_,e1),al1), CApp(_,(_,e2),al2) ->
@@ -581,8 +582,8 @@ let explicitize loc inctx impl (cf,f) args =
   match is_projection (List.length args) cf with
     | Some i as ip ->
 	if not (List.is_empty impl) && is_status_implicit (List.nth impl (i-1)) then
-	  let f' = match f with CRef f -> f | _ -> assert false in
-	  CAppExpl (loc,(ip,f'),args)
+	  let f',us = match f with CRef (f,us) -> f,us | _ -> assert false in
+	  CAppExpl (loc,(ip,f',us),args)
 	else
 	  let (args1,args2) = List.chop i args in
 	  let (impl1,impl2) = if List.is_empty impl then [],[] else List.chop i impl in
@@ -593,26 +594,26 @@ let explicitize loc inctx impl (cf,f) args =
 	let args = exprec 1 (args,impl) in
 	if List.is_empty args then f else CApp (loc, (None, f), args)
 
-let extern_global loc impl f =
+let extern_global loc impl f us =
   if not !Constrintern.parsing_explicit &&
      not (List.is_empty impl) && List.for_all is_status_implicit impl
   then
-    CAppExpl (loc, (None, f), [])
+    CAppExpl (loc, (None, f, us), [])
   else
-    CRef f
+    CRef (f,us)
 
-let extern_app loc inctx impl (cf,f) args =
+let extern_app loc inctx impl (cf,f) us args =
   if List.is_empty args then
     (* If coming from a notation "Notation a := @b" *)
-    CAppExpl (loc, (None, f), [])
+    CAppExpl (loc, (None, f, us), [])
   else if not !Constrintern.parsing_explicit &&
     ((!Flags.raw_print ||
       (!print_implicits & not !print_implicits_explicit_args)) &
      List.exists is_status_implicit impl)
   then
-    CAppExpl (loc, (is_projection (List.length args) cf, f), args)
+    CAppExpl (loc, (is_projection (List.length args) cf,f,us), args)
   else
-    explicitize loc inctx impl (cf,CRef f) args
+    explicitize loc inctx impl (cf,CRef (f,us)) args
 
 let rec extern_args extern scopes env args subscopes =
   match args with
@@ -624,7 +625,7 @@ let rec extern_args extern scopes env args subscopes =
 	extern argscopes env a :: extern_args extern scopes env args subscopes
 
 let rec remove_coercions inctx = function
-  | GApp (loc,GRef (_,r),args) as c
+  | GApp (loc,GRef (_,r,_),args) as c
       when  not (!Flags.raw_print or !print_coercions)
       ->
       let nargs = List.length args in
@@ -692,11 +693,11 @@ let rec extern inctx scopes vars r =
     if !Flags.raw_print or !print_no_symbol then raise No_match;
     extern_symbol scopes vars r'' (uninterp_notations r'')
   with No_match -> match r' with
-  | GRef (loc,ref) ->
+  | GRef (loc,ref,us) ->
       extern_global loc (select_stronger_impargs (implicits_of_global ref))
-        (extern_reference loc vars ref)
+        (extern_reference loc vars ref) us
 
-  | GVar (loc,id) -> CRef (Ident (loc,id))
+  | GVar (loc,id) -> CRef (Ident (loc,id),None)
 
   | GEvar (loc,n,None) when !print_meta_as_hole -> CHole (loc, None)
 
@@ -708,7 +709,7 @@ let rec extern inctx scopes vars r =
 
   | GApp (loc,f,args) ->
       (match f with
-	 | GRef (rloc,ref) ->
+	 | GRef (rloc,ref,us) ->
 	     let subscopes = find_arguments_scope ref in
 	     let args =
 	       extern_args (extern true) (snd scopes) vars args subscopes in
@@ -747,14 +748,15 @@ let rec extern inctx scopes vars r =
 				 | [] -> raise No_match
 				     (* we give up since the constructor is not complete *)
 				 | head :: tail -> ip q locs' tail
-				     ((extern_reference loc Idset.empty (ConstRef c), head) :: acc)
+				     ((extern_reference loc Idset.empty (ConstRef c), head)
+				      :: acc)
 		   in
 		 CRecord (loc, None, List.rev (ip projs locals args []))
 	       with
 		 | Not_found | No_match | Exit ->
 		     extern_app loc inctx
 		       (select_stronger_impargs (implicits_of_global ref))
-		       (Some ref,extern_reference rloc vars ref) args
+		       (Some ref,extern_reference rloc vars ref) us args
 	     end
 	 | _       ->
 	     explicitize loc inctx [] (None,sub_extern false scopes vars f)
@@ -915,7 +917,7 @@ and extern_symbol (tmp_scope,scopes as allscopes) vars t = function
 	      let args1, args2 = List.chop n args in
               let subscopes, impls =
                 match f with
-                | GRef (_,ref) ->
+                | GRef (_,ref,us) ->
 	          let subscopes =
 		    try List.skipn n (find_arguments_scope ref) with _ -> [] in
 	          let impls =
@@ -928,7 +930,7 @@ and extern_symbol (tmp_scope,scopes as allscopes) vars t = function
                   [], [] in
 	      (if Int.equal n 0 then f else GApp (Loc.ghost,f,args1)),
 	      args2, subscopes, impls
-	  | GApp (_,(GRef (_,ref) as f),args), None ->
+	  | GApp (_,(GRef (_,ref,us) as f),args), None ->
 	      let subscopes = find_arguments_scope ref in
 	      let impls =
 		  select_impargs_size
@@ -969,7 +971,7 @@ and extern_symbol (tmp_scope,scopes as allscopes) vars t = function
 		List.map (fun (c,(scopt,scl)) ->
 		  extern true (scopt,scl@scopes) vars c, None)
 		  terms in
-              let a = CRef (Qualid (loc, shortest_qualid_of_syndef vars kn)) in
+              let a = CRef (Qualid (loc, shortest_qualid_of_syndef vars kn),None) in
 	      if List.is_empty l then a else CApp (loc,(None,a),l) in
  	if List.is_empty args then e
 	else
@@ -1032,7 +1034,7 @@ let any_any_branch =
   (loc,[],[PatVar (loc,Anonymous)],GHole (loc,Evar_kinds.InternalHole))
 
 let rec glob_of_pat env = function
-  | PRef ref -> GRef (loc,ref)
+  | PRef ref -> GRef (loc,ref,None)
   | PVar id -> GVar (loc,id)
   | PEvar (n,l) -> GEvar (loc,n,Some (Array.map_to_list (glob_of_pat env) l))
   | PRel n ->
