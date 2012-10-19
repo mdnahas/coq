@@ -194,14 +194,14 @@ end
 
 module EvarMap = struct
   (* 2nd part used to check consistency on the fly. *)
-  type universe_context = Univ.universe_context_set * Univ.universes
+  type universe_context = Names.dir_path * Univ.universe_context_set * Univ.universes
 
-  let empty_universe_context =
-    Univ.empty_universe_context_set, Univ.initial_universes
+  let empty_universe_context dp =
+    dp, Univ.empty_universe_context_set, Univ.initial_universes
 
   type t = EvarInfoMap.t * universe_context
-  let empty = EvarInfoMap.empty, empty_universe_context
-  let from_env_and_context e c = EvarInfoMap.empty, (c, universes e)
+  let empty = EvarInfoMap.empty, empty_universe_context Names.empty_dirpath
+  let from_env_and_context e (dp,c) = EvarInfoMap.empty, (dp, c, universes e)
 
   let is_empty (sigma,_) = EvarInfoMap.is_empty sigma
   let has_undefined (sigma,_) = EvarInfoMap.has_undefined sigma
@@ -230,8 +230,8 @@ module EvarMap = struct
         EvarInfoMap.is_defined sigma2 k))
 
   let merge e e' = fold e' (fun n v sigma -> add sigma n v) e
-  let add_constraints (sigma, (ctx, us)) cstrs =
-    (sigma, (Univ.add_constraints_ctx ctx cstrs, Univ.merge_constraints cstrs us))
+  let add_constraints (sigma, (dp, ctx, us)) cstrs =
+    (sigma, (dp, Univ.add_constraints_ctx ctx cstrs, Univ.merge_constraints cstrs us))
 end
 
 (*******************************************************************)
@@ -362,7 +362,7 @@ let existential_value d e = EvarMap.existential_value d.evars e
 let existential_type d e = EvarMap.existential_type d.evars e
 let existential_opt_value d e = EvarMap.existential_opt_value d.evars e
 
-let add_constraints d e = {d with evars= EvarMap.add_constraints d.evars e}
+let add_constraints d e = {d with evars = EvarMap.add_constraints d.evars e}
 
 (*** /Lifting... ***)
 
@@ -383,7 +383,7 @@ let subst_evar_info s evi =
       evar_body = subst_evb evi.evar_body }
 
 let subst_evar_defs_light sub evd =
-  assert (Univ.is_initial_universes (snd (snd evd.evars)));
+  assert (Univ.is_initial_universes (pi3 (snd evd.evars)));
   assert (evd.conv_pbs = []);
   { evd with
       metas = Metamap.map (map_clb (subst_mps sub)) evd.metas;
@@ -406,7 +406,7 @@ let empty =  {
   metas=Metamap.empty
 }
 
-let from_env ?(ctx=Univ.empty_universe_context_set) e = 
+let from_env ?(ctx=Names.empty_dirpath,Univ.empty_universe_context_set) e = 
   { empty with evars = EvarMap.from_env_and_context e ctx }
 
 let has_undefined evd =
@@ -497,27 +497,46 @@ let collect_evars c =
 (**********************************************************)
 (* Sort variables *)
 
-let universe_context_set ({evars = (sigma, (ctx, us)) }) = ctx
-let universe_context ({evars = (sigma, (ctx, us)) }) =
+let universe_context_set ({evars = (sigma, (dp, ctx, us)) }) = ctx
+let universe_context ({evars = (sigma, (dp, ctx, us)) }) =
   Univ.context_of_universe_context_set ctx
 
-let merge_context_set ({evars = (sigma, (ctx, us))} as d) ctx' = 
-  {d with evars = (sigma, (Univ.union_universe_context_set ctx ctx', 
+let merge_context_set ({evars = (sigma, (dp, ctx, us))} as d) ctx' = 
+  {d with evars = (sigma, (dp, Univ.union_universe_context_set ctx ctx', 
 			   Univ.merge_constraints (snd ctx') us))}
 
 let with_context_set d (a, ctx) = 
   (merge_context_set d ctx, a)
 
-let new_univ_variable ({ evars = (sigma, ((vars, cst), us)) } as d) =
-  let u = Termops.new_univ_level () in
+let new_univ_variable ({ evars = (sigma, (dp, (vars, cst), us)) } as d) =
+  let u = Termops.new_univ_level dp in
   let vars' = Univ.UniverseLSet.add u vars in
-    ({d with evars = (sigma, ((vars', cst), us))}, Univ.make_universe u)
+    ({d with evars = (sigma, (dp, (vars', cst), us))}, Univ.make_universe u)
 
 let new_sort_variable d =
   let (d', u) = new_univ_variable d in
     (d', Type u)
 
-let is_sort_variable {evars=(_,(us,_))} s = match s with Type u -> true | _ -> false 
+
+(****************************************)
+(* Operations on constants              *)
+(****************************************)
+
+let fresh_constant_instance env dp c =
+  let cb = lookup_constant c env in
+  let inst, ctx = Univ.fresh_instance_from ~dp cb.Declarations.const_universes in
+    ((c, inst), ctx)
+
+let fresh_constant_instance env ({ evars = (sigma, (dp, _, _)) } as evd) c = 
+  with_context_set evd (fresh_constant_instance env dp c)
+
+let fresh_inductive_instance env evd i =
+  with_context_set evd (Inductive.fresh_inductive_instance env i)
+
+let fresh_constructor_instance env evd c =
+  with_context_set evd (Inductive.fresh_constructor_instance env c)
+
+let is_sort_variable {evars=(_,(dp, us,_))} s = match s with Type u -> true | _ -> false 
 let whd_sort_variable {evars=(_,sm)} t = t
 
 let univ_of_sort = function
@@ -535,7 +554,7 @@ let is_eq_sort s1 s2 =
 let is_univ_var_or_set u =   
   Univ.is_univ_variable u || u = Univ.type0_univ
 
-let set_leq_sort ({evars = (sigma, (us, sm))} as d) s1 s2 =
+let set_leq_sort ({evars = (sigma, (dp, us, sm))} as d) s1 s2 =
   match is_eq_sort s1 s2 with
   | None -> d
   | Some (u1, u2) ->
@@ -557,7 +576,7 @@ let is_univ_level_var (us, cst) u =
   | Some u -> Univ.UniverseLSet.mem u us
   | None -> false
 
-let set_eq_sort ({evars = (sigma, (us, sm))} as d) s1 s2 =
+let set_eq_sort ({evars = (sigma, (dp, us, sm))} as d) s1 s2 =
   match is_eq_sort s1 s2 with
   | None -> d
   | Some (u1, u2) ->
@@ -575,7 +594,7 @@ let set_eq_sort ({evars = (sigma, (us, sm))} as d) s1 s2 =
 	  add_constraints d (Univ.enforce_eq u1 u2 Univ.empty_constraint)
       | _, _ -> raise (Univ.UniverseInconsistency (Univ.Eq, u1, u2, []))
 
-let set_eq_level ({evars = (sigma, (us, sm))} as d) u1 u2 =
+let set_eq_level ({evars = (sigma, (dp, us, sm))} as d) u1 u2 =
   add_constraints d (Univ.enforce_eq_level u1 u2 Univ.empty_constraint)
 >>>>>>> - Add externalisation code for universe level instances.
 	    
@@ -825,7 +844,7 @@ let evar_dependency_closure n sigma =
   aux n (undefined_list sigma)
 
 let pr_evar_map_t depth sigma =
-  let (evars,(uvs,univs)) = sigma.evars in
+  let (evars,(dp,uvs,univs)) = sigma.evars in
   let pr_evar_list l =
     h 0 (prlist_with_sep fnl
 	   (fun (ev,evi) ->
