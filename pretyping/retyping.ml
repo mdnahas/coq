@@ -150,8 +150,8 @@ let type_of_global_reference_knowing_conclusion env sigma c conclty =
   let conclty = nf_evar sigma conclty in
   match kind_of_term c with
     | Ind (ind,u) ->
-        let (_,mip) = Inductive.lookup_mind_specif env ind in
-        type_of_inductive_knowing_conclusion env mip conclty
+        let spec = Inductive.lookup_mind_specif env ind in
+        type_of_inductive_knowing_conclusion env (spec,u) conclty
     | Const cst ->
         let t = constant_type_inenv env cst in
         (* TODO *)
