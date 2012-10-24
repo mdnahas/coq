@@ -247,9 +247,12 @@ let build_coq_eq_data () =
   trans = Lazy.force coq_eq_trans;
   congr = Lazy.force coq_eq_congr }
 
+let make_dirpath dir = 
+  Names.make_dirpath (List.map id_of_string dir)
+
 let lazy_init_constant_in env dir id ctx = 
   let c = init_constant_ dir id in
-  let pc, ctx' = Termops.fresh_global_instance env c in
+  let pc, ctx' = Universes.fresh_global_instance env c in
     pc, Univ.union_universe_context_set ctx ctx'
 
 let seq_ctx ma f = fun ctx ->
@@ -302,7 +305,7 @@ let build_coq_jmeq_data () =
   congr = Lazy.force coq_jmeq_congr }
 
 let join_jmeq_types eq =
-  mkLambda(Name (id_of_string "A"),Termops.new_Type empty_dirpath (*FIXME?*),
+  mkLambda(Name (id_of_string "A"),Universes.new_Type (Global.current_dirpath ()),
   mkLambda(Name (id_of_string "x"),mkRel 1,
   mkApp (eq,[|mkRel 2;mkRel 1;mkRel 2|])))
 

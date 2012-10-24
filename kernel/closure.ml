@@ -235,7 +235,7 @@ let ref_value_cache info ref =
 	| RelKey n ->
 	    let (s,l) = info.i_rels in lift n (List.assoc (s-n) l)
 	| VarKey id -> List.assoc id info.i_vars
-	| ConstKey cst -> constant_value_inenv info.i_env cst
+	| ConstKey cst -> constant_value_in info.i_env cst
     in
     let v = info.i_repr info body in
     KeyTable.add info.i_tab ref v;

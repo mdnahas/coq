@@ -125,6 +125,8 @@ val repr_kn : kernel_name -> module_path * dir_path * label
 val modpath : kernel_name -> module_path
 val label : kernel_name -> label
 
+val dp_of_mp : module_path -> dir_path
+
 val string_of_kn : kernel_name -> string
 val pr_kn : kernel_name -> Pp.std_ppcmds
 
