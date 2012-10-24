@@ -388,7 +388,7 @@ let add_class cl =
 open Declarations
 (* FIXME: deal with universe instances *)
 let add_constant_class cst =
-  let ty = Typeops.type_of_constant_inenv (Global.env ()) (cst,[]) in
+  let ty = Typeops.type_of_constant_in (Global.env ()) (cst,[]) in
   let ctx, arity = decompose_prod_assum ty in
   let tc = 
     { cl_impl = ConstRef cst;
@@ -421,11 +421,14 @@ let instance_constructor cl args =
   let lenpars = List.length (List.filter (fun (na, b, t) -> b = None) (snd cl.cl_context)) in
   let pars = fst (List.chop lenpars args) in
     match cl.cl_impl with
-      | IndRef ind -> Some (applistc (mkConstruct (ind, 1)) args),
-	  applistc (mkInd ind) pars
+      | IndRef ind -> 
+      let ind, ctx = Universes.fresh_inductive_instance (Global.env ()) ind in
+        (Some (applistc (mkConstructUi (ind, 1)) args),
+	 applistc (mkIndU ind) pars), ctx
       | ConstRef cst -> 
-	let term = if args = [] then None else Some (List.last args) in
-	  term, applistc (mkConst cst) pars
+      let cst, ctx = Universes.fresh_constant_instance (Global.env ()) cst in
+      let term = if args = [] then None else Some (List.last args) in
+	(term, applistc (mkConstU cst) pars), ctx
       | _ -> assert false
 
 let typeclasses () = Gmap.fold (fun _ l c -> l :: c) !classes []

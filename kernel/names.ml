@@ -178,6 +178,11 @@ let rec string_of_mp = function
   | MPbound uid -> string_of_uid uid
   | MPdot (mp,l) -> string_of_mp mp ^ "." ^ string_of_label l
 
+let rec dp_of_mp = function
+  | MPfile sl -> sl
+  | MPbound (_,_,dp) -> dp
+  | MPdot (mp,l) -> dp_of_mp mp
+
 (** we compare labels first if both are MPdots *)
 let rec mp_ord mp1 mp2 =
   if mp1 == mp2 then 0
