@@ -70,6 +70,7 @@ val set_proofs_transparency : bool -> unit (* true = All transparent, false = Op
 val get_proofs_transparency : unit -> bool
 
 val add_definition : Names.identifier -> ?term:Term.constr -> Term.types -> 
+  Univ.universe_context_set ->
   ?implicits:(Constrexpr.explicitation * (bool * bool * bool)) list ->
   ?kind:Decl_kinds.definition_kind ->
   ?tactic:Proof_type.tactic ->
@@ -86,6 +87,7 @@ type fixpoint_kind =
 val add_mutual_definitions :
   (Names.identifier * Term.constr * Term.types *
       (Constrexpr.explicitation * (bool * bool * bool)) list * obligation_info) list ->
+  Univ.universe_context_set ->
   ?tactic:Proof_type.tactic ->
   ?kind:Decl_kinds.definition_kind ->
   ?reduce:(Term.constr -> Term.constr) ->
