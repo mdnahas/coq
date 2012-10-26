@@ -285,10 +285,10 @@ let build_subclasses ~check env sigma glob pri =
 		   Some (ConstRef proj, pri, ConstRef c)) tc.cl_projs 
 	in
 	let declare_proj hints (cref, pri, body) =
-	  let rest = aux pri (constr_of_global body) in
+	  let rest = aux pri (fst (Universes.fresh_global_instance env body))(*FIXME*) in
 	    hints @ (pri, body) :: rest
 	in List.fold_left declare_proj [] projs 
-  in aux pri (fresh_constr_of_global glob)
+  in aux pri (fst (Universes.fresh_global_instance env glob))(*FIXME*)
 
 (*
  * instances persistent object
@@ -370,8 +370,7 @@ let remove_instance i =
   remove_instance_hint i.is_impl
 
 let declare_instance pri local glob =
-  let c = constr_of_global glob in
-  let ty = Retyping.get_type_of (Global.env ()) Evd.empty c in
+  let ty = Global.type_of_global_unsafe (*FIXME*) glob in
     match class_of_constr ty with
     | Some (rels, (tc, args) as _cl) ->
       add_instance (new_instance tc pri (not local) (Flags.use_polymorphic_flag ()) glob)
