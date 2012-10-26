@@ -32,6 +32,7 @@ open Util
 module UniverseLevel = struct
 
   type t =
+    | Prop
     | Set
     | Level of int * Names.dir_path
 
@@ -47,6 +48,9 @@ module UniverseLevel = struct
     if u == v then 0
     else
     (match u,v with
+    | Prop,Prop -> 0
+    | Prop, _ -> -1
+    | _, Prop -> 1
     | Set, Set -> 0
     | Set, _ -> -1
     | _, Set -> 1
@@ -56,12 +60,14 @@ module UniverseLevel = struct
       else Names.dir_path_ord dp1 dp2)
 
   let equal u v = match u,v with
+    | Prop, Prop -> true
     | Set, Set -> true
     | Level (i1, dp1), Level (i2, dp2) ->
       Int.equal i1 i2 && Int.equal (Names.dir_path_ord dp1 dp2) 0
     | _ -> false
 
   let to_string = function
+    | Prop -> "Prop"
     | Set -> "Set"
     | Level (n,d) -> Names.string_of_dirpath d^"."^string_of_int n
 end
@@ -75,7 +81,6 @@ type universe_set = UniverseLSet.t
 
 type 'a puniverses = 'a * universe_list
 let out_punivs (a, _) = a
-
 
 let empty_universe_list = []
 let empty_universe_set = UniverseLSet.empty
@@ -130,6 +135,7 @@ let type1_univ = Max ([], [UniverseLevel.Set])
 (* Returns the formal universe that lies juste above the universe variable u.
    Used to type the sort u. *)
 let super = function
+  | Atom UniverseLevel.Prop -> type1_univ
   | Atom u ->
       Max ([],[u])
   | Max ([],[]) (* Prop *) -> type1_univ
@@ -141,8 +147,13 @@ let super = function
    Used to type the products. *)
 let sup u v =
   match u,v with
-    | Atom u, Atom v ->
-	if UniverseLevel.equal u v then Atom u else Max ([u;v],[])
+    | Atom ua, Atom va ->
+	if UniverseLevel.equal ua va then u else
+	  if ua = UniverseLevel.Prop then v
+	  else if va = UniverseLevel.Prop then u
+	  else Max ([ua;va],[])
+    | Atom UniverseLevel.Prop, v -> v
+    | u, Atom UniverseLevel.Prop -> u
     | u, Max ([],[]) -> u
     | Max ([],[]), v -> v
     | Atom u, Max (gel,gtl) -> Max (List.add_set u gel,gtl)
@@ -178,10 +189,11 @@ let enter_arc ca g =
 
 (* The lower predicative level of the hierarchy that contains (impredicative)
    Prop and singleton inductive types *)
-let type0m_univ = Max ([],[])
+let type0m_univ = Atom UniverseLevel.Prop
 
 let is_type0m_univ = function
   | Max ([],[]) -> true
+  | Atom UniverseLevel.Prop -> true
   | _ -> false
 
 (* The level of predicative Set *)
@@ -193,7 +205,7 @@ let is_type0_univ = function
   | u -> false
 
 let is_univ_variable = function
-  | Atom a when a<>UniverseLevel.Set -> true
+  | Atom (UniverseLevel.Level _) -> true
   | _ -> false
 
 let initial_universes = UniverseLMap.empty
@@ -614,6 +626,11 @@ let constraint_depend_list (l,d,r) us =
 let constraints_depend cstr us = 
   Constraint.exists (fun c -> constraint_depend_list c us) cstr
 
+let remove_dangling_constraints dangling cst =
+  Constraint.fold (fun (l,d,r as cstr) cst' -> 
+    if List.mem l dangling || List.mem r dangling then cst'
+    else Constraint.add cstr cst') cst Constraint.empty
+  
 let check_context_subset (univs, cst) (univs', cst') =
   let newunivs, dangling = List.partition (fun u -> UniverseLSet.mem u univs) univs' in
     (* Some universe variables that don't appear in the term 
@@ -623,8 +640,9 @@ let check_context_subset (univs, cst) (univs', cst') =
     (* TODO: check implication *)
   (** Remove local universes that do not appear in any constraint, they
       are really entirely parametric. *)
-  let newunivs, dangling' = List.partition (fun u -> constraints_depend cst [u]) newunivs in 
-    newunivs, cst
+  let newunivs, dangling' = List.partition (fun u -> constraints_depend cst [u]) newunivs in
+  let cst' = remove_dangling_constraints dangling cst in
+    newunivs, cst'
 
 let add_constraints_ctx (univs, cst) cst' =
   univs, union_constraints cst cst'
@@ -1046,11 +1064,13 @@ module Hunivlevel =
       type t = universe_level
       type u = Names.dir_path -> Names.dir_path
       let hashcons hdir = function
+	| UniverseLevel.Prop -> UniverseLevel.Prop
 	| UniverseLevel.Set -> UniverseLevel.Set
 	| UniverseLevel.Level (n,d) -> UniverseLevel.Level (n,hdir d)
       let equal l1 l2 =
         l1 == l2 ||
         match l1,l2 with
+	| UniverseLevel.Prop, UniverseLevel.Prop -> true
 	| UniverseLevel.Set, UniverseLevel.Set -> true
 	| UniverseLevel.Level (n,d), UniverseLevel.Level (n',d') ->
 	  n == n' && d == d'
