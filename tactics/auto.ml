@@ -561,7 +561,7 @@ let make_extern pri pat tacast =
      code = Extern tacast })
 
 let make_trivial env sigma ?(name=PathAny) r =
-  let c = constr_of_global r in
+  let c = Universes.constr_of_global r in
   let t = hnf_constr env sigma (type_of env sigma c) in
   let hd = head_of_constr_reference (fst (head_constr t)) in
   let ce = mk_clenv_from dummy_goal (c,t) in
@@ -719,7 +719,7 @@ let add_resolves env sigma clist local dbnames =
 	    (local,dbname, AddHints
      	      (List.flatten (List.map (fun (x, hnf, path, gr) ->
 		make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path 
-		  (constr_of_global gr)) clist)))))
+		  (Universes.constr_of_global gr)) clist)))))
     dbnames
 
 let add_unfolds l local dbnames =

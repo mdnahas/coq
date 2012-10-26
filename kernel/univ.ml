@@ -293,6 +293,8 @@ let between g arcu arcv =
    Otherwise, between g u v = []
  *)
 
+type constraint_type = Lt | Le | Eq
+
 type explanation = (constraint_type * universe) list
 
 let constraint_type_ord c1 c2 = match c1, c2 with
@@ -497,8 +499,6 @@ let merge_disc g arcu arcv =
 (* Universe inconsistency: error raised when trying to enforce a relation
    that would create a cycle in the graph of universes. *)
 
-type constraint_type = Lt | Le | Eq
-
 exception UniverseInconsistency of
   constraint_type * universe * universe * explanation
 
@@ -640,7 +640,7 @@ let check_context_subset (univs, cst) (univs', cst') =
     (* TODO: check implication *)
   (** Remove local universes that do not appear in any constraint, they
       are really entirely parametric. *)
-  let newunivs, dangling' = List.partition (fun u -> constraints_depend cst [u]) newunivs in
+  (* let newunivs, dangling' = List.partition (fun u -> constraints_depend cst [u]) newunivs in *)
   let cst' = remove_dangling_constraints dangling cst in
     newunivs, cst'
 

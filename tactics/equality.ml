@@ -236,8 +236,8 @@ let register_is_applied_rewrite_relation = (:=) is_applied_rewrite_relation
 
 let find_elim hdcncl lft2rgt dep cls args gl =
   let inccl = (cls = None) in
-  if (eq_constr hdcncl (constr_of_reference (Coqlib.glob_eq)) ||
-      eq_constr hdcncl (constr_of_reference (Coqlib.glob_jmeq)) &&
+  if (eq_constr hdcncl (Universes.constr_of_global (Coqlib.glob_eq)) ||
+      eq_constr hdcncl (Universes.constr_of_global (Coqlib.glob_jmeq)) &&
       pf_conv_x gl (List.nth args 0) (List.nth args 2)) && not dep
     || Flags.version_less_or_equal Flags.V8_2
   then
@@ -1127,7 +1127,7 @@ let injEq ipats (eq,_,(t,t1,t2) as u) eq_clause =
 *)
         try (
 (* fetch the informations of the  pair *)
-        let ceq = constr_of_global Coqlib.glob_eq in
+        let ceq = Universes.constr_of_global Coqlib.glob_eq in
         let sigTconstr () = (Coqlib.build_sigma_type()).Coqlib.typ in
         let eqTypeDest = fst (destApp t) in
         let _,ar1 = destApp t1 and
@@ -1147,13 +1147,16 @@ let injEq ipats (eq,_,(t,t1,t2) as u) eq_clause =
               let qidl = qualid_of_reference
                 (Ident (Loc.ghost,id_of_string "Eqdep_dec")) in
               Library.require_library [qidl] (Some false);
+	      let scheme = find_scheme (!eq_dec_scheme_kind_name()) (fst ind) in
 (* cut with the good equality and prove the requested goal *)
               tclTHENS (cut (mkApp (ceq,new_eq_args)) )
-               [tclIDTAC; tclTHEN (apply (
+               [tclIDTAC; 
+		pf_constr_of_global (ConstRef scheme) (fun c ->
+		tclTHEN (apply (
                   mkApp(inj2,
-                        [|ar1.(0);mkConst(*FIXME*) (find_scheme (!eq_dec_scheme_kind_name()) (fst ind));
+                        [|ar1.(0);c;
                           ar1.(1);ar1.(2);ar1.(3);ar2.(3)|])
-                  )) (Auto.trivial [] [])
+                  )) (Auto.trivial [] []))
                 ]
 (* not a dep eq or no decidable type found *)
             ) else (raise Not_dep_pair)
@@ -1398,7 +1401,8 @@ let unfold_body x gl =
 
 
 let restrict_to_eq_and_identity eq = (* compatibility *)
-  if eq <> constr_of_global glob_eq && eq <> constr_of_global glob_identity then
+  if eq <> Universes.constr_of_global glob_eq 
+    && eq <> Universes.constr_of_global glob_identity then
     raise PatternMatchingFailure
 
 exception FoundHyp of (identifier * constr * bool)

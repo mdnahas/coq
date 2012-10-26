@@ -62,7 +62,7 @@ let gen_crible refopt (fn : global_reference -> env -> constr -> unit) =
 	(try
 	   let (id,_,typ) = Global.lookup_named (basename sp) in
            if refopt = None
-	     || head_const typ = constr_of_global (Option.get refopt)
+	     || head_const typ = Universes.constr_of_global (Option.get refopt)
 	   then
 	     fn (VarRef id) env typ
 	 with Not_found -> (* we are in a section *) ())
@@ -70,7 +70,7 @@ let gen_crible refopt (fn : global_reference -> env -> constr -> unit) =
 	let cst = Global.constant_of_delta_kn kn in
 	let typ = Typeops.type_of_constant_in env (cst,[]) (*FIXME*)in
         if refopt = None
-	  || head_const typ = constr_of_global (Option.get refopt)
+	  || head_const typ = Universes.constr_of_global (Option.get refopt)
 	then
 	  fn (ConstRef cst) env typ
     | "INDUCTIVE" ->

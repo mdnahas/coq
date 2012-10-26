@@ -71,7 +71,7 @@ let pf_get_new_ids ids gls =
     ids []
 
 let pf_global gls id = Constrintern.construct_reference (pf_hyps gls) id
-
+    
 let pf_parse_const gls = compose (pf_global gls) id_of_string
 
 let pf_reduction_of_red_expr gls re c =

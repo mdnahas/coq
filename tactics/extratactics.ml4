@@ -292,7 +292,7 @@ let project_hint pri l2r r =
   let id =
     Nameops.add_suffix (Nametab.basename_of_global gr) ("_proj_" ^ (if l2r then "l2r" else "r2l"))
   in
-  let c = Declare.declare_definition ~internal:Declare.KernelSilent id c in
+  let c = Declare.declare_definition ~internal:Declare.KernelSilent id (c,ctx) in
     (pri,true,Auto.PathAny, Globnames.ConstRef c)
 
 let add_hints_iff l2r lc n bl =
