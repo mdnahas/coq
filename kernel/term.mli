@@ -30,6 +30,8 @@ val prop_sort : sorts
 val type1_sort  : sorts
 
 val is_prop_sort : sorts -> bool
+val univ_of_sort : sorts -> Univ.universe
+val sort_of_univ : Univ.universe -> sorts
 
 (** {6 The sorts family of CCI. } *)
 
