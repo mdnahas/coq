@@ -394,7 +394,7 @@ let discharge_cl = function
 
 let discharge_coercion (_,(coe,stre,isid,cls,clt,ps)) =
   if stre = Local then None else
-    let n = try Array.length (Lib.section_instance coe) with Not_found -> 0 in
+    let n = try Array.length (snd (Lib.section_instance coe)) with Not_found -> 0 in
     Some (Lib.discharge_global coe,
           stre,
 	  isid,
