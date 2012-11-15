@@ -142,7 +142,7 @@ let merge_binding allow_bound_rels stk n cT subst =
 let matches_core convert allow_partial_app allow_bound_rels pat c =
   let convref ref c = 
     match ref, kind_of_term c with
-    | VarRef id, Var id' -> Names.eq_id id id'
+    | VarRef id, Var id' -> Names.id_eq id id'
     | ConstRef c, Const (c',_) -> Names.eq_constant c c'
     | IndRef i, Ind (i', _) -> Names.eq_ind i i'
     | ConstructRef c, Construct (c',u) -> Names.eq_constructor c c'

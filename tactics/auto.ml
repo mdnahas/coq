@@ -822,7 +822,7 @@ let interp_hints =
     let evd,c = Constrintern.interp_open_constr Evd.empty (Global.env()) c in
     let c = prepare_hint (Global.env()) (evd,c) in
     Evarutil.check_evars (Global.env()) Evd.empty evd c;
-    c in
+    c, Evd.universe_context_set evd in
   let fr r =
     let gr = global_with_alias r in
     let r' = evaluable_of_global_reference (Global.env()) gr in

@@ -188,7 +188,7 @@ type conv_pb =
   | CUMUL
 
 let is_cumul = function CUMUL -> true | CONV -> false
-let is_pos = function Pos -> true | Nul -> false
+let is_pos = function Pos -> true | Null -> false
 
 let sort_cmp pb s0 s1 cuniv =
   match (s0,s1) with
