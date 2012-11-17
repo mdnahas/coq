@@ -946,7 +946,7 @@ Section Basics.
  intros.
  simpl p2ibis; destruct p; [ | | red; auto];
   specialize IHn with p;
-  destruct (p2ibis n p); simpl snd in *; simpl phi_inv_positive;
+  destruct (p2ibis n p); simpl @snd in *; simpl phi_inv_positive;
   rewrite ?EqShiftL_twice_plus_one, ?EqShiftL_twice;
   replace (S (size - S n))%nat with (size - n)%nat by omega;
   apply IHn; omega.
@@ -1960,7 +1960,7 @@ Section Int31_Specs.
 
  Lemma div31_phi i j: 0 < [|j|] -> [|fst (i/j)%int31|] = [|i|]/[|j|].
  intros Hj; generalize (spec_div i j Hj).
- case div31; intros q r; simpl fst.
+ case div31; intros q r; simpl @fst.
  intros (H1,H2); apply Zdiv_unique with [|r|]; auto with zarith.
  rewrite H1; ring.
  Qed.
@@ -2095,7 +2095,7 @@ Section Int31_Specs.
  generalize (spec_div21 ih il j Hj Hj1).
  case div3121; intros q r (Hq, Hr).
  apply Zdiv_unique with (phi r); auto with zarith.
- simpl fst; apply eq_trans with (1 := Hq); ring.
+ simpl @fst; apply eq_trans with (1 := Hq); ring.
  Qed.
 
  Lemma sqrt312_step_correct rec ih il j:
