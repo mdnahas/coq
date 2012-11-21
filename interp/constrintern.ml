@@ -298,7 +298,7 @@ let reset_tmp_scope env = {env with tmp_scope = None}
 
 let set_scope env = function
   | CastConv (GSort _) -> set_type_scope env
-  | CastConv (GRef (_,ref) | GApp (_,GRef (_,ref),_)) ->
+  | CastConv (GRef (_,ref,_) | GApp (_,GRef (_,ref,_),_)) ->
       {env with tmp_scope = compute_scope_of_global ref}
   | _ -> env
 
