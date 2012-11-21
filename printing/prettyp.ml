@@ -85,7 +85,7 @@ let pr_impl_name imp = pr_id (name_of_implicit imp)
 let print_impargs_by_name max = function
   | []  -> []
   | impls ->
-     [hov 0 (str (plural (List.length impls) "Argument") ++ spc() ++
+     [hov 0 (str (String.plural (List.length impls) "Argument") ++ spc() ++
       prlist_with_sep pr_comma pr_impl_name impls ++ spc() ++
       str (conjugate_verb_to_be impls) ++ str" implicit" ++
       (if max then strbrk " and maximally inserted" else mt()))]
@@ -111,7 +111,7 @@ let print_impargs_list prefix l =
 	   (if n1 = n2 then int_or_no n2 else
 	    if n1 = 0 then str "less than " ++ int n2
 	    else int n1 ++ str " to " ++ int_or_no n2) ++
-	    str (plural n2 " argument") ++ str ":";
+	    str (String.plural n2 " argument") ++ str ":";
           v 0 (prlist_with_sep cut (fun x -> x)
 	    (if List.exists is_status_implicit imps
 	    then print_one_impargs_list imps
@@ -166,12 +166,12 @@ let print_simpl_behaviour ref =
      let pp_nomatch = spc() ++ if nomatch then
        str "avoiding to expose match constructs" else str"" in
      let pp_recargs = spc() ++ str "when the " ++
-       pr_enum (fun x -> pr_nth (x+1)) recargs ++ str (plural (List.length recargs) " argument") ++
-       str (plural (if List.length recargs >= 2 then 1 else 2) " evaluate") ++
+       pr_enum (fun x -> pr_nth (x+1)) recargs ++ str (String.plural (List.length recargs) " argument") ++
+       str (String.plural (if List.length recargs >= 2 then 1 else 2) " evaluate") ++
        str " to a constructor" in
      let pp_nargs =
        spc() ++ str "when applied to " ++ int nargs ++
-       str (plural nargs " argument") in
+       str (String.plural nargs " argument") in
      [hov 2 (str "The simpl tactic " ++
      match recargs, nargs, never with
      | _,_, true -> str "never unfolds " ++ pr_global ref
@@ -418,10 +418,12 @@ let print_constant with_values sep sp =
     | None ->
 	str"*** [ " ++
 	print_basename sp ++ str " : " ++ cut () ++ pr_ltype typ ++
-	str" ]"
+	str" ]" ++
+	Printer.pr_univ_cstr cb.const_constraints
     | _ ->
 	print_basename sp ++ str sep ++ cut () ++
-	(if with_values then print_typed_body (val_0,typ) else pr_ltype typ))
+	(if with_values then print_typed_body (val_0,typ) else pr_ltype typ)++
+        Printer.pr_univ_cstr cb.const_constraints)
 
 let gallina_print_constant_with_infos sp =
   print_constant true " = " sp ++

@@ -1,5 +1,6 @@
 Coq_config
 
+Int
 Pp_control
 Loc
 Compat
@@ -11,6 +12,7 @@ Unicode
 Errors
 CObj
 CList
+CString
 CArray
 Util
 Bigint
@@ -51,7 +53,6 @@ Conv_oracle
 Closure
 Reduction
 Type_errors
-Entries
 Modops
 Inductive
 Typeops
@@ -108,6 +109,7 @@ Pretyping
 Declaremods
 
 Tok
+Int
 Lexer
 Ppextend
 Pputils

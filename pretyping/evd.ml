@@ -56,7 +56,7 @@ let evar_body evi = evi.evar_body
 let evar_filter evi = evi.evar_filter
 let evar_unfiltered_env evi = Global.env_of_context evi.evar_hyps
 let evar_filtered_context evi =
-  snd (List.filter2 (fun b c -> b) (evar_filter evi,evar_context evi))
+  snd (List.filter2 (fun b c -> b) (evar_filter evi) (evar_context evi))
 let evar_env evi =
   List.fold_right push_named (evar_filtered_context evi)
     (reset_context (Global.env()))
@@ -118,14 +118,14 @@ module EvarInfoMap = struct
   let undefined_evars (def,undef) = (ExistentialMap.empty,undef)
   let defined_evars (def,undef) = (def,ExistentialMap.empty)
 
-  let find (def,undef) k =
-    try ExistentialMap.find k def
-    with Not_found -> ExistentialMap.find k undef
+  let find (def, undef) k =
+    try ExistentialMap.find k undef
+    with Not_found -> ExistentialMap.find k def
   let find_undefined (def,undef) k = ExistentialMap.find k undef
   let remove (def,undef) k =
     (ExistentialMap.remove k def,ExistentialMap.remove k undef)
-  let mem (def,undef) k =
-    ExistentialMap.mem k def || ExistentialMap.mem k undef
+  let mem (def, undef) k =
+    ExistentialMap.mem k undef || ExistentialMap.mem k def
   let fold (def,undef) f a =
     ExistentialMap.fold f def (ExistentialMap.fold f undef a)
   let fold_undefined (def,undef) f a =
@@ -133,15 +133,13 @@ module EvarInfoMap = struct
   let exists_undefined (def,undef) f =
     ExistentialMap.fold (fun k v b -> b || f k v) undef false
 
-  let add (def,undef) evk newinfo =
-    if newinfo.evar_body = Evar_empty then
-      (def,ExistentialMap.add evk newinfo undef)
-    else
-      (ExistentialMap.add evk newinfo def,undef)
+  let add (def,undef) evk newinfo = match newinfo.evar_body with
+  | Evar_empty -> (def, ExistentialMap.add evk newinfo undef)
+  | _ -> (ExistentialMap.add evk newinfo def, undef)
 
-  let add_undefined (def,undef) evk newinfo =
-    assert (newinfo.evar_body = Evar_empty);
-    (def,ExistentialMap.add evk newinfo undef)
+  let add_undefined (def,undef) evk newinfo = match newinfo.evar_body with
+  | Evar_empty -> (def, ExistentialMap.add evk newinfo undef)
+  | _ -> assert false
 
   let map f (def,undef) = (ExistentialMap.map f def, ExistentialMap.map f undef)
 
@@ -526,15 +524,15 @@ let set_leq_sort ({evars = (sigma, (us, sm))} as d) s1 s2 =
       match s1, s2 with
       | Prop c, Prop c' -> 
 	  if c = Null && c' = Pos then d
-	  else (raise (Univ.UniverseInconsistency (Univ.Le, u1, u2)))
+	  else (raise (Univ.UniverseInconsistency (Univ.Le, u1, u2,[])))
      | Type u, Prop c -> 
 	  if c = Pos then 
 	    add_constraints d (Univ.enforce_leq u Univ.type0_univ Univ.empty_constraint)
-	  else raise (Univ.UniverseInconsistency (Univ.Le, u1, u2))
+	  else raise (Univ.UniverseInconsistency (Univ.Le, u1, u2,[]))
       | _, Type u ->
 	  if is_univ_var_or_set u then
 	    add_constraints d (Univ.enforce_leq u1 u2 Univ.empty_constraint)
-	  else raise (Univ.UniverseInconsistency (Univ.Le, u1, u2))
+	  else raise (Univ.UniverseInconsistency (Univ.Le, u1, u2,[]))
 
 let is_univ_level_var us u =
   match Univ.universe_level u with
@@ -557,7 +555,7 @@ let set_eq_sort ({evars = (sigma, (us, sm))} as d) s1 s2 =
       | Type u, Prop c when is_univ_var_or_set u && Univ.check_eq sm u1 u2 -> d
       | Type u, Type v when is_univ_var_or_set u && is_univ_var_or_set v ->
 	  add_constraints d (Univ.enforce_eq u1 u2 Univ.empty_constraint)
-      | _, _ -> raise (Univ.UniverseInconsistency (Univ.Eq, u1, u2))
+      | _, _ -> raise (Univ.UniverseInconsistency (Univ.Eq, u1, u2, []))
 	    
 (**********************************************************)
 (* Accessing metas *)
@@ -572,7 +570,7 @@ let undefined_metas evd =
     | (n,Cltyp (_,typ))  -> Some n
   in
   let m = List.map_filter filter (meta_list evd) in
-  List.sort Pervasives.compare m
+  List.sort (-) m
 
 let metas_of evd =
   List.map (function

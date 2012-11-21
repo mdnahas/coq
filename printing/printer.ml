@@ -113,6 +113,13 @@ let pr_sort s = pr_glob_sort (extern_sort s)
 
 let _ = Termops.set_print_constr pr_lconstr_env
 
+let pr_in_comment pr x = str "(* " ++ pr x ++ str " *)"
+let pr_univ_cstr (c:Univ.constraints) =
+  if !Detyping.print_universes && not (Univ.is_empty_constraint c) then
+    fnl()++pr_in_comment (fun c -> v 0 (Univ.pr_constraints c)) c
+  else
+    mt()
+
 (**********************************************************************)
 (* Global references *)
 
@@ -288,7 +295,7 @@ let pr_concl n sigma g =
 (* display evar type: a context and a type *)
 let pr_evgl_sign gl =
   let ps = pr_named_context_of (evar_unfiltered_env gl) in
-  let _,l = List.filter2 (fun b c -> not b) (evar_filter gl,evar_context gl) in
+  let _, l = List.filter2 (fun b c -> not b) (evar_filter gl) (evar_context gl) in
   let ids = List.rev (List.map pi1 l) in
   let warn =
     if ids = [] then mt () else
@@ -586,19 +593,24 @@ let pr_assumptionset env s =
       try str " : " ++ pr_ltype typ with _ -> mt ()
     in
     let fold t typ accu =
-      let (v, a, o) = accu in
+      let (v, a, o, tr) = accu in
       match t with
       | Variable id ->
         let var = str (string_of_id id) ++ str " : " ++ pr_ltype typ in
-        (var :: v, a, o)
+        (var :: v, a, o, tr)
       | Axiom kn ->
         let ax = safe_pr_constant env kn ++ safe_pr_ltype typ in
-        (v, ax :: a, o)
+        (v, ax :: a, o, tr)
       | Opaque kn ->
         let opq = safe_pr_constant env kn ++ safe_pr_ltype typ in
-        (v, a, opq :: o)
+        (v, a, opq :: o, tr)
+      | Transparent kn ->
+        let tran = safe_pr_constant env kn ++ safe_pr_ltype typ in
+        (v, a, o, tran :: tr)
     in
-    let (vars, axioms, opaque) = ContextObjectMap.fold fold s ([], [], []) in
+    let (vars, axioms, opaque, trans) = 
+      ContextObjectMap.fold fold s ([], [], [], [])
+    in
     let opt_list title = function
     | [] -> None
     | l ->
@@ -608,6 +620,7 @@ let pr_assumptionset env s =
       Some section
     in
     let assums = [
+      opt_list (str "Transparent constants:") trans;
       opt_list (str "Section Variables:") vars;
       opt_list (str "Axioms:") axioms;
       opt_list (str "Opaque constants:") opaque;
@@ -668,7 +681,8 @@ let print_mutual_inductive env mind mib =
   hov 0 (
     str (if mib.mind_finite then "Inductive " else "CoInductive ") ++
     prlist_with_sep (fun () -> fnl () ++ str"  with ")
-      (print_one_inductive env mib) inds)
+      (print_one_inductive env mib) inds ++
+      pr_univ_cstr mib.mind_constraints)
 
 let get_fields =
   let rec prodec_rec l subst c =
@@ -703,7 +717,8 @@ let print_record env mind mib =
       prlist_with_sep (fun () -> str ";" ++ brk(2,0))
         (fun (id,b,c) ->
 	  pr_id id ++ str (if b then " : " else " := ") ++
-	  pr_lconstr_env envpar c) fields) ++ str" }")
+	  pr_lconstr_env envpar c) fields) ++ str" }" ++
+      pr_univ_cstr mib.mind_constraints)
 
 let pr_mutual_inductive_body env mind mib =
   if mib.mind_record & not !Flags.raw_print then

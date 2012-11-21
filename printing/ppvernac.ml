@@ -64,7 +64,7 @@ let sep_end = function
 (* Warning: [pr_raw_tactic] globalises and fails if globalisation fails *)
 
 let pr_raw_tactic_env l env t =
-  pr_glob_tactic env (Tacinterp.glob_tactic_env l env t)
+  pr_glob_tactic env (Tacintern.glob_tactic_env l env t)
 
 let pr_gen env t =
   pr_raw_generic
@@ -179,17 +179,21 @@ let pr_opt_hintbases l = match l with
   | [] -> mt()
   | _ as z -> str":" ++ spc() ++ prlist_with_sep sep str z
 
+let pr_reference_or_constr pr_c = function
+  | HintsReference r -> pr_reference r
+  | HintsConstr c -> pr_c c
+
 let pr_hints local db h pr_c pr_pat =
   let opth = pr_opt_hintbases db  in
   let pph =
     match h with
     | HintsResolve l ->
         str "Resolve " ++ prlist_with_sep sep
-	  (fun (pri, _, c) -> pr_c c ++
+	  (fun (pri, _, c) -> pr_reference_or_constr pr_c c ++
 	    match pri with Some x -> spc () ++ str"(" ++ int x ++ str")" | None -> mt ())
 	  l
     | HintsImmediate l ->
-        str"Immediate" ++ spc() ++ prlist_with_sep sep pr_c l
+        str"Immediate" ++ spc() ++ prlist_with_sep sep (pr_reference_or_constr pr_c) l
     | HintsUnfold l ->
         str "Unfold " ++ prlist_with_sep sep pr_reference l
     | HintsTransparency (l, b) ->
@@ -430,6 +434,58 @@ let pr_record_decl b c fs =
     hv 0 (prlist_with_sep pr_semicolon pr_record_field fs ++ str"}")
 in
 
+let pr_printable = function
+| PrintFullContext -> str "Print All"
+| PrintSectionContext s ->
+    str "Print Section" ++ spc() ++ Libnames.pr_reference s
+| PrintGrammar ent ->
+    str "Print Grammar" ++ spc() ++ str ent
+| PrintLoadPath dir -> str "Print LoadPath" ++ pr_opt pr_dirpath dir
+| PrintModules -> str "Print Modules"
+| PrintMLLoadPath -> str "Print ML Path"
+| PrintMLModules -> str "Print ML Modules"
+| PrintGraph -> str "Print Graph"
+| PrintClasses -> str "Print Classes"
+| PrintTypeClasses -> str "Print TypeClasses"
+| PrintInstances qid -> str "Print Instances" ++ spc () ++ pr_smart_global qid
+| PrintLtac qid -> str "Print Ltac" ++ spc() ++ pr_ltac_ref qid
+| PrintCoercions -> str "Print Coercions"
+| PrintCoercionPaths (s,t) -> str "Print Coercion Paths" ++ spc() ++ pr_class_rawexpr s ++ spc() ++ pr_class_rawexpr t
+| PrintCanonicalConversions -> str "Print Canonical Structures"
+| PrintTables -> str "Print Tables"
+| PrintHintGoal -> str "Print Hint"
+| PrintHint qid -> str "Print Hint" ++ spc() ++ pr_smart_global qid
+| PrintHintDb -> str "Print Hint *"
+| PrintHintDbName s -> str "Print HintDb" ++ spc() ++ str s
+| PrintRewriteHintDbName s -> str "Print Rewrite HintDb" ++ spc() ++ str s
+| PrintUniverses (b, fopt) ->
+  let cmd =
+    if b then "Print Sorted Universes"
+    else "Print Universes"
+  in
+  str cmd ++ pr_opt str fopt
+| PrintName qid -> str "Print" ++ spc()  ++ pr_smart_global qid
+| PrintModuleType qid -> str "Print Module Type" ++ spc() ++ pr_reference qid
+| PrintModule qid -> str "Print Module" ++ spc() ++ pr_reference qid
+| PrintInspect n -> str "Inspect" ++ spc() ++ int n
+| PrintScopes -> str "Print Scopes"
+| PrintScope s -> str "Print Scope" ++ spc() ++ str s
+| PrintVisibility s -> str "Print Visibility" ++ pr_opt str s
+| PrintAbout qid -> str "About" ++ spc()  ++ pr_smart_global qid
+| PrintImplicit qid -> str "Print Implicit" ++ spc()  ++ pr_smart_global qid
+(* spiwack: command printing all the axioms and section variables used in a
+  term *)
+| PrintAssumptions (b, t, qid) ->
+  let cmd = match b, t with
+  | true, true -> "Print All Dependencies"
+  | true, false -> "Print Opaque Dependencies"
+  | false, true -> "Print Transparent Dependencies"
+  | false, false -> "Print Assumptions"
+  in
+  str cmd ++ spc() ++ pr_smart_global qid
+| PrintNamespace dp -> str "Print Namespace" ++ pr_dirpath dp
+in
+
 let rec pr_vernac = function
 
   (* Proof management *)
@@ -439,7 +495,7 @@ let rec pr_vernac = function
   | VernacUnfocused -> str"Unfocused"
   | VernacGoal c -> str"Goal" ++ pr_lconstrarg c
   | VernacAbort id -> str"Abort" ++ pr_opt pr_lident id
-  | VernacUndo i -> if i=1 then str"Undo" else str"Undo" ++ pr_intarg i
+  | VernacUndo i -> if Int.equal i 1 then str"Undo" else str"Undo" ++ pr_intarg i
   | VernacUndoTo i -> str"Undo" ++ spc() ++ str"To" ++ pr_intarg i
   | VernacBacktrack (i,j,k) ->
       str "Backtrack" ++  spc() ++ prlist_with_sep sep int [i;j;k]
@@ -467,7 +523,7 @@ let rec pr_vernac = function
   (* Resetting *)
   | VernacResetName id -> str"Reset" ++ spc() ++ pr_lident id
   | VernacResetInitial -> str"Reset Initial"
-  | VernacBack i -> if i=1 then str"Back" else str"Back" ++ pr_intarg i
+  | VernacBack i -> if Int.equal i 1 then str"Back" else str"Back" ++ pr_intarg i
   | VernacBackTo i -> str"BackTo" ++ pr_intarg i
 
   (* State management *)
@@ -578,9 +634,9 @@ let rec pr_vernac = function
       let pr_constructor_list b l = match l with
         | Constructors [] -> mt()
         | Constructors l ->
+            let fst_sep = match l with [_] -> "   " | _ -> " | " in
             pr_com_at (begin_of_inductive l) ++
-            fnl() ++
-            str (if List.length l = 1 then "   " else " | ") ++
+            fnl() ++ str fst_sep ++
             prlist_with_sep (fun _ -> fnl() ++ str" | ") pr_constructor l
        | RecordDecl (c,fs) ->
 	    spc() ++
@@ -678,7 +734,7 @@ let rec pr_vernac = function
 
  | VernacDeclareInstances (glob, ids) ->
      hov 1 (pr_non_locality (not glob) ++
-               str"Existing" ++ spc () ++ str(plural (List.length ids) "Instance") ++
+               str"Existing" ++ spc () ++ str(String.plural (List.length ids) "Instance") ++
                spc () ++ prlist_with_sep spc pr_reference ids)
 
  | VernacDeclareClass id ->
@@ -860,47 +916,7 @@ let rec pr_vernac = function
   | VernacDeclareReduction (b,s,r) ->
      pr_locality b ++ str "Declare Reduction " ++ str s ++ str " := " ++
      pr_red_expr (pr_constr,pr_lconstr,pr_smart_global, pr_constr) r
-  | VernacPrint p ->
-      let pr_printable = function
-	| PrintFullContext -> str"Print All"
-	| PrintSectionContext s ->
-            str"Print Section" ++ spc() ++ Libnames.pr_reference s
-	| PrintGrammar ent ->
-            str"Print Grammar" ++ spc() ++ str ent
-	| PrintLoadPath dir -> str"Print LoadPath" ++ pr_opt pr_dirpath dir
-	| PrintModules -> str"Print Modules"
-	| PrintMLLoadPath -> str"Print ML Path"
-	| PrintMLModules -> str"Print ML Modules"
-	| PrintGraph -> str"Print Graph"
-	| PrintClasses -> str"Print Classes"
-	| PrintTypeClasses -> str"Print TypeClasses"
-	| PrintInstances qid -> str"Print Instances" ++ spc () ++ pr_smart_global qid
-	| PrintLtac qid -> str"Print Ltac" ++ spc() ++ pr_ltac_ref qid
-	| PrintCoercions -> str"Print Coercions"
-	| PrintCoercionPaths (s,t) -> str"Print Coercion Paths" ++ spc() ++ pr_class_rawexpr s ++ spc() ++ pr_class_rawexpr t
-	| PrintCanonicalConversions -> str"Print Canonical Structures"
-	| PrintTables -> str"Print Tables"
-	| PrintHintGoal -> str"Print Hint"
-	| PrintHint qid -> str"Print Hint" ++ spc() ++ pr_smart_global qid
-	| PrintHintDb -> str"Print Hint *"
-	| PrintHintDbName s -> str"Print HintDb" ++ spc() ++ str s
-	| PrintRewriteHintDbName s -> str"Print Rewrite HintDb" ++ spc() ++ str s
-	| PrintUniverses (b, fopt) -> Printf.ksprintf str "Print %sUniverses" (if b then "Sorted " else "") ++ pr_opt str fopt
-	| PrintName qid -> str"Print" ++ spc()  ++ pr_smart_global qid
-	| PrintModuleType qid -> str"Print Module Type" ++ spc() ++ pr_reference qid
-	| PrintModule qid -> str"Print Module" ++ spc() ++ pr_reference qid
-	| PrintInspect n -> str"Inspect" ++ spc() ++ int n
-	| PrintScopes -> str"Print Scopes"
-	| PrintScope s -> str"Print Scope" ++ spc() ++ str s
-	| PrintVisibility s -> str"Print Visibility" ++ pr_opt str s
-	| PrintAbout qid -> str"About" ++ spc()  ++ pr_smart_global qid
-	| PrintImplicit qid -> str"Print Implicit" ++ spc()  ++ pr_smart_global qid
-(* spiwack: command printing all the axioms and section variables used in a
-         term *)
-	| PrintAssumptions (b,qid) -> (if b then str"Print Assumptions" else str"Print Opaque Dependencies")
-	    ++ spc() ++ pr_smart_global qid
-	| PrintNamespace dp -> str"Print Namespace" ++ pr_dirpath dp
-      in pr_printable p
+  | VernacPrint p -> pr_printable p
   | VernacSearch (sea,sea_r) -> pr_search sea sea_r pr_constr_pattern_expr
   | VernacLocate loc ->
       let pr_locate =function

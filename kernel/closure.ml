@@ -199,6 +199,15 @@ let unfold_red kn =
 
 type table_key = id_key
 
+module IdKeyHash =
+struct
+  type t = id_key
+  let equal = Names.eq_id_key
+  let hash = Hashtbl.hash
+end
+
+module KeyTable = Hashtbl.Make(IdKeyHash)
+
 let eq_table_key = Names.eq_id_key
 
 type 'a infos = {
@@ -208,13 +217,13 @@ type 'a infos = {
   i_sigma : existential -> constr option;
   i_rels : int * (int * constr) list;
   i_vars : (identifier * constr) list;
-  i_tab : (table_key, 'a) Hashtbl.t }
+  i_tab : 'a KeyTable.t }
 
 let info_flags info = info.i_flags
 
 let ref_value_cache info ref =
   try
-    Some (Hashtbl.find info.i_tab ref)
+    Some (KeyTable.find info.i_tab ref)
   with Not_found ->
   try
     let body =
@@ -225,7 +234,7 @@ let ref_value_cache info ref =
 	| ConstKey cst -> constant_value info.i_env cst
     in
     let v = info.i_repr info body in
-    Hashtbl.add info.i_tab ref v;
+    KeyTable.add info.i_tab ref v;
     Some v
   with
     | Not_found (* List.assoc *)
@@ -262,7 +271,7 @@ let create mk_cl flgs env evars =
     i_sigma = evars;
     i_rels = defined_rels flgs env;
     i_vars = defined_vars flgs env;
-    i_tab = Hashtbl.create 17 }
+    i_tab = KeyTable.create 17 }
 
 
 (**********************************************************************)
@@ -318,7 +327,7 @@ and fterm =
 
 let fterm_of v = v.term
 let set_norm v = v.norm <- Norm
-let is_val v = v.norm = Norm
+let is_val v = match v.norm with Norm -> true | _ -> false
 
 let mk_atom c = {norm=Norm;term=FAtom c}
 
@@ -345,7 +354,7 @@ and stack = stack_member list
 
 let empty_stack = []
 let append_stack v s =
-  if Array.length v = 0 then s else
+  if Int.equal (Array.length v) 0 then s else
   match s with
   | Zapp l :: s -> Zapp (Array.append v l) :: s
   | _ -> Zapp v :: s
@@ -389,7 +398,7 @@ let rec stack_assign s p c = match s with
          Zapp nargs :: s)
   | _ -> s
 let rec stack_tail p s =
-  if p = 0 then s else
+  if Int.equal p 0 then s else
     match s with
       | Zapp args :: s ->
 	  let q = Array.length args in
@@ -417,9 +426,9 @@ let rec lft_fconstr n ft =
     | FLOCKED -> assert false
     | _ -> {norm=ft.norm; term=FLIFT(n,ft)}
 let lift_fconstr k f =
-  if k=0 then f else lft_fconstr k f
+  if Int.equal k 0 then f else lft_fconstr k f
 let lift_fconstr_vect k v =
-  if k=0 then v else Array.map (fun f -> lft_fconstr k f) v
+  if Int.equal k 0 then v else Array.map (fun f -> lft_fconstr k f) v
 
 let clos_rel e i =
   match expand_rel i e with
@@ -443,7 +452,7 @@ let compact_stack head stk =
 
 (* Put an update mark in the stack, only if needed *)
 let zupdate m s =
-  if !share & m.norm = Red
+  if !share && begin match m.norm with Red -> true | _ -> false end
   then
     let s' = compact_stack m s in
     let _ = m.term <- FLOCKED in
@@ -710,7 +719,7 @@ let get_nth_arg head n stk =
           let bef = Array.sub args 0 n in
           let aft = Array.sub args (n+1) (q-n-1) in
           let stk' =
-            List.rev (if n = 0 then rstk else (Zapp bef :: rstk)) in
+            List.rev (if Int.equal n 0 then rstk else (Zapp bef :: rstk)) in
           (Some (stk', args.(n)), append_stack aft s')
     | Zupdate(m)::s ->
         strip_rec rstk (update m (h.norm,h.term)) n s
@@ -751,24 +760,24 @@ let rec reloc_rargs_rec depth stk =
   match stk with
       Zapp args :: s ->
         Zapp (lift_fconstr_vect depth args) :: reloc_rargs_rec depth s
-    | Zshift(k)::s -> if k=depth then s else reloc_rargs_rec (depth-k) s
+    | Zshift(k)::s -> if Int.equal k depth then s else reloc_rargs_rec (depth-k) s
     | _ -> stk
 
 let reloc_rargs depth stk =
-  if depth = 0 then stk else reloc_rargs_rec depth stk
+  if Int.equal depth 0 then stk else reloc_rargs_rec depth stk
 
 let rec drop_parameters depth n argstk =
   match argstk with
       Zapp args::s ->
         let q = Array.length args in
         if n > q then drop_parameters depth (n-q) s
-        else if n = q then reloc_rargs depth s
+        else if Int.equal n q then reloc_rargs depth s
         else
           let aft = Array.sub args n (q-n) in
           reloc_rargs depth (append_stack aft s)
     | Zshift(k)::s -> drop_parameters (depth-k) n s
     | [] -> (* we know that n < stack_args_size(argstk) (if well-typed term) *)
-	if n=0 then []
+	if Int.equal n 0 then []
 	else anomaly
 	  "ill-typed term: found a match on a partially applied constructor"
     | _ -> assert false

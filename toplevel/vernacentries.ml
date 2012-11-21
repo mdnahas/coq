@@ -259,7 +259,7 @@ let print_namespace ns =
         begin match match_dirpath ns dir with
         | Some [] as y -> y
         | Some (a::ns') ->
-            if Names.id_ord a id = 0 then Some ns'
+            if Int.equal (Names.id_ord a id) 0 then Some ns'
             else None
         | None -> None
         end
@@ -272,7 +272,7 @@ let print_namespace ns =
         begin match match_modulepath ns mp with
         | Some [] as y -> y
         | Some (a::ns') ->
-            if Names.id_ord a id = 0 then Some ns'
+            if Int.equal (Names.id_ord a id) 0 then Some ns'
             else None
         | None -> None
         end
@@ -876,7 +876,7 @@ let vernac_restore_state file =
 (* Commands *)
 
 let vernac_declare_tactic_definition (local,x,def) =
-  Tacinterp.add_tacdef local x def
+  Tacintern.add_tacdef local x def
 
 let vernac_create_hintdb local id b =
   Auto.create_hint_db local id full_transparent_state b
@@ -1317,7 +1317,7 @@ let vernac_check_may_eval redexp glopt rc =
     | None ->
 	msg_notice (print_judgment env j)
     | Some r ->
-        Tacinterp.dump_glob_red_expr r;
+        Tacintern.dump_glob_red_expr r;
         let (sigma',r_interp) = interp_redexp env sigma' r in
 	let redfun = fst (reduction_of_red_expr r_interp) in
 	msg_notice (print_eval redfun env sigma' rc j)
@@ -1352,7 +1352,7 @@ let vernac_print = function
   | PrintClasses -> msg_notice (Prettyp.print_classes())
   | PrintTypeClasses -> msg_notice (Prettyp.print_typeclasses())
   | PrintInstances c -> msg_notice (Prettyp.print_instances (smart_global c))
-  | PrintLtac qid -> msg_notice (Tacinterp.print_ltac (snd (qualid_of_reference qid)))
+  | PrintLtac qid -> msg_notice (Tacintern.print_ltac (snd (qualid_of_reference qid)))
   | PrintCoercions -> msg_notice (Prettyp.print_coercions())
   | PrintCoercionPaths (cls,clt) ->
       msg_notice (Prettyp.print_path_between (cl_of_qualid cls) (cl_of_qualid clt))
@@ -1377,11 +1377,12 @@ let vernac_print = function
     msg_notice (print_about qid)
   | PrintImplicit qid ->
     dump_global qid; msg_notice (print_impargs qid)
-  | PrintAssumptions (o,r) ->
+  | PrintAssumptions (o,t,r) ->
       (* Prints all the axioms and section variables used by a term *)
       let cstr = constr_of_global (smart_global r) in
       let st = Conv_oracle.get_transp_state () in
-      let nassums = Assumptions.assumptions st ~add_opaque:o cstr in
+      let nassums =
+	Assumptions.assumptions st ~add_opaque:o ~add_transparent:t cstr in
       msg_notice (Printer.pr_assumptionset (Global.env ()) nassums)
 
 let global_module r =
@@ -1550,7 +1551,7 @@ let vernac_undoto n =
 let vernac_focus gln =
   let p = Proof_global.give_me_the_proof () in
   let n = match gln with None -> 1 | Some n -> n in
-  if n = 0 then
+  if Int.equal n 0 then
     Errors.error "Invalid goal number: 0. Goal numbering starts with 1."
   else
     Proof.focus focus_command_cond () n p; print_subgoals ()

@@ -149,7 +149,7 @@ let trunc_named_context n ctx =
     List.firstn (len - n) ctx
 
 let rec chop_product n t =
-  if n = 0 then Some t
+  if Int.equal n 0 then Some t
   else
     match kind_of_term t with
       | Prod (_, _, b) ->  if noccurn 1 b then chop_product (pred n) (Termops.pop b) else None
@@ -428,7 +428,7 @@ let subst_deps_obl obls obl =
   let t' = subst_deps true obls obl.obl_deps obl.obl_type in
     { obl with obl_type = t' }
 
-module ProgMap = Map.Make(struct type t = identifier let compare = compare end)
+module ProgMap = Map.Make(struct type t = identifier let compare = id_ord end)
 
 let map_replace k v m = ProgMap.add k v (ProgMap.remove k m)
 
@@ -645,7 +645,7 @@ let get_prog_err n =
 let get_any_prog_err () =
   try get_any_prog () with NoObligations id -> pperror (explain_no_obligations id)
 
-let obligations_solved prg = (snd prg.prg_obligations) = 0
+let obligations_solved prg = Int.equal (snd prg.prg_obligations) 0
 
 let all_programs () =
   ProgMap.fold (fun k p l -> p :: l) !from_prg []
@@ -657,7 +657,7 @@ type progress =
 
 let obligations_message rem =
   if rem > 0 then
-    if rem = 1 then
+    if Int.equal rem 1 then
       Flags.if_verbose msg_info (int rem ++ str " obligation remaining")
     else
       Flags.if_verbose msg_info (int rem ++ str " obligations remaining")
@@ -898,7 +898,7 @@ let add_definition n ?term t ?(implicits=[]) ?(kind=Global,Definition) ?tactic
   let info = str (string_of_id n) ++ str " has type-checked" in
   let prg = init_prog_info n term t [] None [] obls implicits kind reduce hook in
   let obls,_ = prg.prg_obligations in
-  if Array.length obls = 0 then (
+  if Int.equal (Array.length obls) 0 then (
     Flags.if_verbose msg_info (info ++ str ".");
     let cst = declare_definition prg in
       Defined cst)

@@ -1,4 +1,5 @@
 Coq_config
+Int
 Pp_control
 Flags
 Pp
@@ -9,6 +10,7 @@ Unicode
 Errors
 CObj
 CList
+CString
 CArray
 Util
 Option

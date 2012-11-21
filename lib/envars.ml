@@ -51,7 +51,7 @@ let expand_path_macros ~warn s =
 	  let v = safe_getenv warn (String.sub s (i+1) (n-i-1)) in
 	  let s = (String.sub s 0 i)^v^(String.sub s n (l-n)) in
 	  expand_macros s (i + String.length v)
-	| '~' when i = 0 ->
+	| '~' when Int.equal i 0 ->
 	  let n = expand_atom s (i+1) in
 	  let v =
 	    if n=i+1 then home ~warn
@@ -102,7 +102,7 @@ let docdir () =
 
 let path_to_list p =
   let sep = if Sys.os_type = "Win32" then ';' else ':' in
-    Util.split_string_at sep p
+    Util.String.split sep p
 
 let xdg_data_home warning =
   coqify
@@ -170,7 +170,7 @@ let camllib () =
     let camlbin = camlbin () in
     let com = (Filename.concat camlbin "ocamlc") ^ " -where" in
     let _,res = CUnix.run_command (fun x -> x) (fun _ -> ()) com in
-    Util.strip res
+    Util.String.strip res
 
 let camlp4bin () =
   if !Flags.camlp4bin_spec then !Flags.camlp4bin else
@@ -187,5 +187,5 @@ let camlp4lib () =
     let com = (Filename.concat camlp4bin Coq_config.camlp4) ^ " -where" in
     let ex,res = CUnix.run_command (fun x -> x) (fun _ -> ()) com in
     match ex with
-      |Unix.WEXITED 0 -> Util.strip res
+      |Unix.WEXITED 0 -> Util.String.strip res
       |_ -> "/dev/null"

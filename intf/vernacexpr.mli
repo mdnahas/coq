@@ -65,7 +65,7 @@ type printable =
   | PrintVisibility of string option
   | PrintAbout of reference or_by_notation
   | PrintImplicit of reference or_by_notation
-  | PrintAssumptions of bool * reference or_by_notation
+  | PrintAssumptions of bool * bool * reference or_by_notation
 
 type search_about_item =
   | SearchSubPattern of constr_pattern_expr
@@ -102,9 +102,13 @@ type comment =
   | CommentString of string
   | CommentInt of int
 
+type reference_or_constr = 
+  | HintsReference of reference
+  | HintsConstr of constr_expr
+
 type hints_expr =
-  | HintsResolve of (int option * bool * constr_expr) list
-  | HintsImmediate of constr_expr list
+  | HintsResolve of (int option * bool * reference_or_constr) list
+  | HintsImmediate of reference_or_constr list
   | HintsUnfold of reference list
   | HintsTransparency of reference list * bool
   | HintsConstructors of reference list

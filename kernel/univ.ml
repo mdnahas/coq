@@ -53,11 +53,12 @@ module UniverseLevel = struct
     | Level (i1, dp1), Level (i2, dp2) ->
       if i1 < i2 then -1
       else if i1 > i2 then 1
-      else compare dp1 dp2)
+      else Names.dir_path_ord dp1 dp2)
 
   let equal u v = match u,v with
     | Set, Set -> true
-    | Level (i1, dp1), Level (i2, dp2) -> i1 = i2 && dp1 = dp2
+    | Level (i1, dp1), Level (i2, dp2) ->
+      Int.equal i1 i2 && Int.equal (Names.dir_path_ord dp1 dp2) 0
     | _ -> false
 
   let to_string = function
@@ -137,7 +138,9 @@ let sup u v =
 
 (* Comparison on this type is pointer equality *)
 type canonical_arc =
-    { univ: UniverseLevel.t; lt: UniverseLevel.t list; le: UniverseLevel.t list }
+    { univ: UniverseLevel.t;
+      lt: UniverseLevel.t list;
+      le: UniverseLevel.t list }
 
 let terminal u = {univ=u; lt=[]; le=[]}
 
@@ -267,8 +270,26 @@ let between g arcu arcv =
    Otherwise, between g u v = []
  *)
 
+type constraint_type = Lt | Le | Eq
+type explanation = (constraint_type * universe) list
 
-type order = EQ | LT | LE | NLE
+let constraint_type_ord c1 c2 = match c1, c2 with
+| Lt, Lt -> 0
+| Lt, _ -> -1
+| Le, Lt -> 1
+| Le, Le -> 0
+| Le, Eq -> -1
+| Eq, Eq -> 0
+| Eq, _ -> 1
+
+(* Assuming the current universe has been reached by [p] and [l]
+   correspond to the universes in (direct) relation [rel] with it,
+   make a list of canonical universe, updating the relation with
+   the starting point (path stored in reverse order). *)
+let canp g (p:explanation) rel l : (canonical_arc * explanation) list =
+  List.map (fun u -> (repr g u, (rel,Atom u)::p)) l
+
+type order = EQ | LT of explanation | LE of explanation | NLE
 
 (** [compare_neq] : is [arcv] in the transitive upward closure of [arcu] ?
 
@@ -291,43 +312,54 @@ type order = EQ | LT | LE | NLE
 *)
 
 let compare_neq strict g arcu arcv =
+  (* [c] characterizes whether (and how) arcv has already been related
+     to arcu among the lt_done,le_done universe *)
   let rec cmp c lt_done le_done = function
   | [],[] -> c
-  | arc::lt_todo, le_todo ->
+  | (arc,p)::lt_todo, le_todo ->
     if List.memq arc lt_done then
       cmp c lt_done le_done (lt_todo,le_todo)
     else
-      let lt_new = can g (arc.lt@arc.le) in
-      if List.memq arcv lt_new then
-	if strict then LT else LE
-      else cmp c (arc::lt_done) le_done (lt_new@lt_todo,le_todo)
-  | [], arc::le_todo ->
+      let lt_new = canp g p Lt arc.lt@ canp g p Le arc.le in
+      (try
+	 let p = List.assq arcv lt_new in
+	 if strict then LT p else LE p
+       with Not_found ->
+	 cmp c (arc::lt_done) le_done (lt_new@lt_todo,le_todo))
+  | [], (arc,p)::le_todo ->
     if arc == arcv then
       (* No need to continue inspecting universes above arc:
 	 if arcv is strictly above arc, then we would have a cycle.
          But we cannot answer LE yet, a stronger constraint may
 	 come later from [le_todo]. *)
-      if strict then cmp LE lt_done le_done ([],le_todo) else LE
+      if strict then cmp (LE p) lt_done le_done ([],le_todo) else LE p
     else
       if (List.memq arc lt_done) || (List.memq arc le_done) then
 	cmp c lt_done le_done ([],le_todo)
       else
-	let lt_new = can g arc.lt in
-	if List.memq arcv lt_new then
-	  if strict then LT else LE
-	else
-	  let le_new = can g arc.le in
-	  cmp c lt_done (arc::le_done) (lt_new, le_new@le_todo)
+	let lt_new = canp g p Lt arc.lt in
+	(try
+	  let p = List.assq arcv lt_new in
+	  if strict then LT p else LE p
+	 with Not_found ->
+	   let le_new = canp g p Le arc.le in
+	   cmp c lt_done (arc::le_done) (lt_new, le_new@le_todo))
   in
-  cmp NLE [] [] ([],[arcu])
+  cmp NLE [] [] ([],[arcu,[]])
 
 let compare g arcu arcv =
   if arcu == arcv then EQ else compare_neq true g arcu arcv
 
 let is_leq g arcu arcv =
-  arcu == arcv || (compare_neq false g arcu arcv = LE)
+  arcu == arcv ||
+ (match compare_neq false g arcu arcv with
+     NLE -> false
+   | (EQ|LE _|LT _) -> true)
 
-let is_lt g arcu arcv = (compare g arcu arcv = LT)
+let is_lt g arcu arcv =
+  match compare g arcu arcv with
+      LT _ -> true
+    | (EQ|LE _|NLE) -> false
 
 (* Invariants : compare(u,v) = EQ <=> compare(v,u) = EQ
                 compare(u,v) = LT or LE => compare(v,u) = NLE
@@ -385,7 +417,7 @@ let check_leq g u v =
 
 (** Enforcing new constraints : [setlt], [setleq], [merge], [merge_disc] *)
 
-(* setlt : UniverseLevel.t -> UniverseLevel.t -> unit *)
+(* setlt : UniverseLevel.t -> UniverseLevel.t -> reason -> unit *)
 (* forces u > v *)
 (* this is normally an update of u in g rather than a creation. *)
 let setlt g arcu arcv =
@@ -443,11 +475,11 @@ let merge_disc g arcu arcv =
 (* Universe inconsistency: error raised when trying to enforce a relation
    that would create a cycle in the graph of universes. *)
 
-type constraint_type = Lt | Le | Eq
+exception UniverseInconsistency of
+  constraint_type * universe * universe * explanation
 
-exception UniverseInconsistency of constraint_type * universe * universe
-
-let error_inconsistency o u v = raise (UniverseInconsistency (o,Atom u,Atom v))
+let error_inconsistency o u v (p:explanation) =
+  raise (UniverseInconsistency (o,Atom u,Atom v,p))
 
 (* enforce_univ_leq : UniverseLevel.t -> UniverseLevel.t -> unit *)
 (* enforce_univ_leq u v will force u<=v if possible, will fail otherwise *)
@@ -456,8 +488,8 @@ let enforce_univ_leq u v g =
   let g,arcv = safe_repr g v in
   if is_leq g arcu arcv then g
   else match compare g arcv arcu with
-    | LT -> error_inconsistency Le u v
-    | LE -> merge g arcv arcu
+    | LT p -> error_inconsistency Le u v (List.rev p)
+    | LE _ -> merge g arcv arcu
     | NLE -> fst (setleq g arcu arcv)
     | EQ -> anomaly "Univ.compare"
 
@@ -468,12 +500,12 @@ let enforce_univ_eq u v g =
   let g,arcv = safe_repr g v in
   match compare g arcu arcv with
     | EQ -> g
-    | LT -> error_inconsistency Eq u v
-    | LE -> merge g arcu arcv
+    | LT p -> error_inconsistency Eq u v (List.rev p)
+    | LE _ -> merge g arcu arcv
     | NLE ->
 	(match compare g arcv arcu with
-           | LT -> error_inconsistency Eq u v
-           | LE -> merge g arcv arcu
+           | LT p -> error_inconsistency Eq u v (List.rev p)
+           | LE _ -> merge g arcv arcu
            | NLE -> merge_disc g arcu arcv
            | EQ -> anomaly "Univ.compare")
 
@@ -482,12 +514,14 @@ let enforce_univ_lt u v g =
   let g,arcu = safe_repr g u in
   let g,arcv = safe_repr g v in
   match compare g arcu arcv with
-    | LT -> g
-    | LE -> fst (setlt g arcu arcv)
-    | EQ -> error_inconsistency Lt u v
+    | LT _ -> g
+    | LE _ -> fst (setlt g arcu arcv)
+    | EQ -> error_inconsistency Lt u v [(Eq,Atom v)]
     | NLE ->
-      if is_leq g arcv arcu then error_inconsistency Lt u v
-      else fst (setlt g arcu arcv)
+      (match compare_neq false g arcv arcu with
+	  NLE -> fst (setlt g arcu arcv)
+	| EQ -> anomaly "Univ.compare"
+	| (LE p|LT p) -> error_inconsistency Lt u v (List.rev p))
 
 (* Constraints and sets of consrtaints. *)
 
@@ -503,7 +537,7 @@ module Constraint = Set.Make(
   struct
     type t = univ_constraint
     let compare (u,c,v) (u',c',v') =
-      let i = Pervasives.compare c c' in
+      let i = constraint_type_ord c c' in
       if i <> 0 then i
       else
 	let i' = UniverseLevel.compare u u' in
@@ -523,7 +557,7 @@ type constraint_function =
 
 let constraint_add_leq v u c =
   (* We just discard trivial constraints like Set<=u or u<=u *)
-  if v = UniverseLevel.Set || UniverseLevel.equal v u then c
+  if UniverseLevel.equal v UniverseLevel.Set || UniverseLevel.equal v u then c
   else Constraint.add (v,Le,u) c
 
 let enforce_leq u v c =
@@ -600,12 +634,16 @@ let normalize_universes g =
 let check_sorted g sorted =
   let get u = try UniverseLMap.find u sorted with
     | Not_found -> assert false
-  in UniverseLMap.iter (fun u arc -> let lu = get u in match arc with
-    | Equiv v -> assert (lu = get v)
-    | Canonical {univ=u'; lt=lt; le=le} ->
+  in
+  let iter u arc =
+    let lu = get u in match arc with
+    | Equiv v -> assert (Int.equal lu (get v))
+    | Canonical {univ = u'; lt = lt; le = le} ->
       assert (u == u');
       List.iter (fun v -> assert (lu <= get v)) le;
-      List.iter (fun v -> assert (lu < get v)) lt) g
+      List.iter (fun v -> assert (lu < get v)) lt
+  in
+  UniverseLMap.iter iter g
 
 (**
   Bellman-Ford algorithm with a few customizations:
@@ -614,7 +652,10 @@ let check_sorted g sorted =
       vertices, and [bottom] is used as the source vertex
 *)
 let bellman_ford bottom g =
-  assert (lookup_level bottom g = None);
+  let () = match lookup_level bottom g with
+  | None -> ()
+  | Some _ -> assert false
+  in
   let ( << ) a b = match a, b with
     | _, None -> true
     | None, _ -> false
@@ -691,7 +732,7 @@ let sort_universes orig =
     let accu, continue = UniverseLMap.fold (fun u x (accu, continue) ->
       let continue = continue || x < 0 in
       let accu =
-        if x = 0 && u != type0 then UniverseLMap.add u i accu
+        if Int.equal x 0 && u != type0 then UniverseLMap.add u i accu
         else accu
       in accu, continue) distances (accu, false)
     in
@@ -756,11 +797,11 @@ let make_max = function
   | (le,lt) -> Max (le,lt)
 
 let remove_large_constraint u = function
-  | Atom u' as x -> if u = u' then Max ([],[]) else x
+  | Atom u' as x -> if UniverseLevel.equal u u' then Max ([],[]) else x
   | Max (le,lt) -> make_max (List.remove u le,lt)
 
 let is_direct_constraint u = function
-  | Atom u' -> u = u'
+  | Atom u' -> UniverseLevel.equal u u'
   | Max (le,lt) -> List.mem u le
 
 (*
@@ -820,7 +861,7 @@ let no_upper_constraints u cst =
 
 let univ_depends u v =
   match u, v with
-    | Atom u, Atom v -> u = v
+    | Atom u, Atom v -> UniverseLevel.equal u v
     | Atom u, Max (gel,gtl) -> List.mem u gel || List.mem u gtl
     | _ -> anomaly "univ_depends given a non-atomic 1st arg"
 
@@ -914,7 +955,7 @@ module Hconstraint =
       type u = universe_level -> universe_level
       let hashcons hul (l1,k,l2) = (hul l1, k, hul l2)
       let equal (l1,k,l2) (l1',k',l2') =
-	l1 == l1' && k = k' && l2 == l2'
+	l1 == l1' && k == k' && l2 == l2'
       let hash = Hashtbl.hash
     end)
 

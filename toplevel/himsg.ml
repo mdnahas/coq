@@ -169,7 +169,7 @@ let explain_cant_apply_bad_type env sigma (n,exptyp,actualtyp) rator randl =
   let nargs = Array.length randl in
 (*  let pe = pr_ne_context_of (str "in environment") env in*)
   let pr,prt = pr_ljudge_env env rator in
-  let term_string1 = str (plural nargs "term") in
+  let term_string1 = str (String.plural nargs "term") in
   let term_string2 =
     if nargs>1 then str "The " ++ pr_nth n ++ str " term" else str "This term" in
   let appl = prvect_with_sep fnl
@@ -204,7 +204,7 @@ let explain_cant_apply_not_functional env sigma rator randl =
   (* pe ++ *) fnl () ++
   str "The expression" ++ brk(1,1) ++ pr ++ spc () ++
   str "of type" ++ brk(1,1) ++ prt ++ spc () ++
-  str "cannot be applied to the " ++ str (plural nargs "term") ++ fnl () ++
+  str "cannot be applied to the " ++ str (String.plural nargs "term") ++ fnl () ++
   str " " ++ v 0 appl
 
 let explain_unexpected_type env sigma actual_type expected_type =
@@ -312,7 +312,7 @@ let explain_ill_typed_rec_body env sigma i names vdefj vargs =
   let pvd,pvdt = pr_ljudge_env env (vdefj.(i)) in
   let pv = pr_lconstr_env env vargs.(i) in
   str "The " ++
-  (if Array.length vdefj = 1 then mt () else pr_nth (i+1) ++ spc ()) ++
+  (if Int.equal (Array.length vdefj) 1 then mt () else pr_nth (i+1) ++ spc ()) ++
   str "recursive definition" ++ spc () ++ pvd ++ spc () ++
   str "has type" ++ spc () ++ pvdt ++ spc () ++
   str "while it should be" ++ spc () ++ pv ++ str "."
@@ -448,7 +448,7 @@ let explain_cannot_unify_binding_type env m n =
 
 let explain_cannot_find_well_typed_abstraction env p l =
   str "Abstracting over the " ++
-  str (plural (List.length l) "term") ++ spc () ++
+  str (String.plural (List.length l) "term") ++ spc () ++
   hov 0 (pr_enum (pr_lconstr_env env) l) ++ spc () ++
   str "leads to a term" ++ spc () ++ pr_lconstr_env env p ++ spc () ++
   str "which is ill-typed."
@@ -757,7 +757,7 @@ let explain_refiner_bad_type arg ty conclty =
 
 let explain_refiner_unresolved_bindings l =
   str "Unable to find an instance for the " ++
-  str (plural (List.length l) "variable") ++ spc () ++
+  str (String.plural (List.length l) "variable") ++ spc () ++
   prlist_with_sep pr_comma pr_name l ++ str"."
 
 let explain_refiner_cannot_apply t harg =
@@ -809,7 +809,7 @@ let error_ill_formed_inductive env c v =
 
 let error_ill_formed_constructor env id c v nparams nargs =
   let pv = pr_lconstr_env env v in
-  let atomic = (nb_prod c = 0) in
+  let atomic = Int.equal (nb_prod c) 0 in
   str "The type of constructor" ++ brk(1,1) ++ pr_id id ++ brk(1,1) ++
   str "is not valid;" ++ brk(1,1) ++
   strbrk (if atomic then "it must be " else "its conclusion must be ") ++
@@ -817,12 +817,12 @@ let error_ill_formed_constructor env id c v nparams nargs =
   (* warning: because of implicit arguments it is difficult to say which
      parameters must be explicitly given *)
   (if nparams<>0 then
-    strbrk " applied to its " ++ str (plural nparams "parameter")
+    strbrk " applied to its " ++ str (String.plural nparams "parameter")
   else
     mt()) ++
   (if nargs<>0 then
      str (if nparams<>0 then " and" else " applied") ++
-     strbrk " to some " ++ str (plural nargs "argument")
+     strbrk " to some " ++ str (String.plural nargs "argument")
    else
      mt()) ++ str "."
 
@@ -917,8 +917,8 @@ let explain_bad_constructor env cstr ind =
   str "is expected."
 
 let decline_string n s =
-  if n = 0 then "no "^s^"s"
-  else if n = 1 then "1 "^s
+  if Int.equal n 0 then "no "^s^"s"
+  else if Int.equal n 1 then "1 "^s
   else (string_of_int n^" "^s^"s")
 
 let explain_wrong_numarg_constructor env cstr n =
@@ -955,7 +955,7 @@ let explain_unused_clause env pats =
 
 let explain_non_exhaustive env pats =
   str "Non exhaustive pattern-matching: no clause found for " ++
-  str (plural (List.length pats) "pattern") ++
+  str (String.plural (List.length pats) "pattern") ++
   spc () ++ hov 0 (pr_sequence pr_cases_pattern pats)
 
 let explain_cannot_infer_predicate env typs =
@@ -1020,7 +1020,7 @@ let explain_ltac_call_trace (nrep,last,trace,loc) =
 		     pr_id id ++ str ":=" ++ Printer.pr_lconstr_under_binders c)
 		  (List.rev vars @ unboundvars) ++ str ")"
 	      else mt())) ++
-      (if n=2 then str " (repeated twice)"
+      (if Int.equal n 2 then str " (repeated twice)"
        else if n>2 then str " (repeated "++int n++str" times)"
        else mt()) in
     if calls <> [] then

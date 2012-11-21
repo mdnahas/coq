@@ -132,8 +132,7 @@ module Hstring = Make(
     type t = string
     type u = unit
     let hashcons () s =(* incr accesstr;*) s
-    let equal s1 s2 =(* incr comparaisonstr;
-      if*) s1=s2(* then (incr successtr; true) else false*)
+    external equal : string -> string -> bool = "caml_string_equal" "noalloc"
     let hash = Hashtbl.hash
   end)
 

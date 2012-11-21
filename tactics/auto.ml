@@ -77,7 +77,7 @@ type hint_entry = global_reference option * types gen_auto_tactic
 
 let pri_order_int (id1, {pri=pri1}) (id2, {pri=pri2}) =
   let d = pri1 - pri2 in
-    if d == 0 then id2 - id1
+    if Int.equal d 0 then id2 - id1
     else d
 
 let pri_order t1 t2 = pri_order_int t1 t2 <= 0
@@ -560,7 +560,8 @@ let make_extern pri pat tacast =
      name = PathAny;
      code = Extern tacast })
 
-let make_trivial env sigma ?(name=PathAny) c =
+let make_trivial env sigma ?(name=PathAny) r =
+  let c = constr_of_global r in
   let t = hnf_constr env sigma (type_of env sigma c) in
   let hd = head_of_constr_reference (fst (head_constr t)) in
   let ce = mk_clenv_from dummy_goal (c,t) in
@@ -716,8 +717,9 @@ let add_resolves env sigma clist local dbnames =
        Lib.add_anonymous_leaf
 	 (inAutoHint
 	    (local,dbname, AddHints
-     	      (List.flatten (List.map (fun (x, hnf, path, y) ->
-		make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path y) clist)))))
+     	      (List.flatten (List.map (fun (x, hnf, path, gr) ->
+		make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path 
+		  (constr_of_global gr)) clist)))))
     dbnames
 
 let add_unfolds l local dbnames =
@@ -772,8 +774,8 @@ let forward_intern_tac =
 let set_extern_intern_tac f = forward_intern_tac := f
 
 type hints_entry =
-  | HintsResolveEntry of (int option * bool * hints_path_atom * constr) list
-  | HintsImmediateEntry of (hints_path_atom * constr) list
+  | HintsResolveEntry of (int option * bool * hints_path_atom * global_reference) list
+  | HintsImmediateEntry of (hints_path_atom * global_reference) list
   | HintsCutEntry of hints_path
   | HintsUnfoldEntry of evaluable_global_reference list
   | HintsTransparencyEntry of evaluable_global_reference list * bool
@@ -813,12 +815,9 @@ let prepare_hint env (sigma,c) =
       mkNamedLambda id t (iter (replace_term evar (mkVar id) c)) in
   iter c
 
-let path_of_constr_expr c =
-  match c with
-  | Constrexpr.CRef r -> (try PathHints [global r] with _ -> PathAny)
-  | _ -> PathAny
-      
-let interp_hints h =
+let interp_hints =
+  let hint_counter = ref 1 in
+  fun h ->
   let f c =
     let evd,c = Constrintern.interp_open_constr Evd.empty (Global.env()) c in
     let c = prepare_hint (Global.env()) (evd,c) in
@@ -829,8 +828,24 @@ let interp_hints h =
     let r' = evaluable_of_global_reference (Global.env()) gr in
     Dumpglob.add_glob (loc_of_reference r) gr;
     r' in
-  let fres (o, b, c) = (o, b, path_of_constr_expr c, f c) in
-  let fi c = path_of_constr_expr c, f c in
+  let fi c =
+    match c with
+    | HintsReference c ->
+      let gr = global_with_alias c in
+	(PathHints [gr], gr)
+    | HintsConstr c ->
+      let term = f c in
+      let id = id_of_string ("auto_hint_" ^ string_of_int !hint_counter) in
+	incr hint_counter;
+      let kn = Declare.declare_definition ~internal:Declare.KernelSilent
+	~opaque:false id term in
+      let gr = ConstRef kn in
+	(PathHints [gr], gr)
+  in
+  let fres (o, b, c) =
+    let path, gr = fi c in
+      (o, b, path, gr)
+  in
   let fp = Constrintern.intern_constr_pattern Evd.empty (Global.env()) in
   match h with
   | HintsResolve lhints -> HintsResolveEntry (List.map fres lhints)
@@ -843,7 +858,8 @@ let interp_hints h =
         let ind = global_inductive_with_alias qid in
 	Dumpglob.dump_reference (fst (qualid_of_reference qid)) "<>" (string_of_reference qid) "ind";
         List.tabulate (fun i -> let c = (ind,i+1) in
-			 None, true, PathHints [ConstructRef c], mkConstruct c)
+				let gr = ConstructRef c in
+			 None, true, PathHints [gr], gr)
 	  (nconstructors ind) in
 	HintsResolveEntry (List.flatten (List.map constr_hints_of_ind lqid))
   | HintsExtern (pri, patcom, tacexp) ->

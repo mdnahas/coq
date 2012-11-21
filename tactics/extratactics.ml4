@@ -93,9 +93,11 @@ TACTIC EXTEND esimplify_eq
     [ dEq true (Some (induction_arg_of_quantified_hyp h)) ]
 END
 
+let discr_main c = elimOnConstrWithHoles discr_tac false c
+
 TACTIC EXTEND discriminate_main
 | [ "discriminate" constr_with_bindings(c) ] ->
-    [ elimOnConstrWithHoles discr_tac false c ]
+    [ discr_main c ]
 END
 TACTIC EXTEND discriminate
 | [ "discriminate" ] -> [ discr_tac false None ]
@@ -112,12 +114,15 @@ TACTIC EXTEND ediscriminate
     [ discr_tac true (Some (induction_arg_of_quantified_hyp h)) ]
 END
 
-let h_discrHyp id gl =
-  h_discriminate_main {it = Term.mkVar id,NoBindings; sigma = Refiner.project gl} gl
+let discrHyp id gl =
+  discr_main {it = Term.mkVar id,NoBindings; sigma = Refiner.project gl} gl
+
+let injection_main c =
+ elimOnConstrWithHoles (injClause []) false c
 
 TACTIC EXTEND injection_main
 | [ "injection" constr_with_bindings(c) ] ->
-    [ elimOnConstrWithHoles (injClause []) false c ]
+    [ injection_main c ]
 END
 TACTIC EXTEND injection
 | [ "injection" ] -> [ injClause [] false None ]
@@ -153,8 +158,8 @@ TACTIC EXTEND einjection_as
     [ injClause ipat true (Some (induction_arg_of_quantified_hyp h)) ]
 END
 
-let h_injHyp id gl =
-  h_injection_main { it = Term.mkVar id,NoBindings; sigma = Refiner.project gl } gl
+let injHyp id gl =
+  injection_main { it = Term.mkVar id,NoBindings; sigma = Refiner.project gl } gl
 
 TACTIC EXTEND dependent_rewrite
 | [ "dependent" "rewrite" orient(b) constr(c) ] -> [ rewriteInConcl b c ]
@@ -268,9 +273,10 @@ END
 open Term
 open Coqlib
 
-let project_hint pri l2r c =
+let project_hint pri l2r r =
+  let gr = Smartlocate.global_with_alias r in
   let env = Global.env() in
-  let c = Constrintern.interp_constr Evd.empty env c in
+  let c = Globnames.constr_of_global gr in
   let t = Retyping.get_type_of env Evd.empty c in
   let t =
     Tacred.reduce_to_quantified_ref env Evd.empty (Lazy.force coq_iff_ref) t in
@@ -283,24 +289,28 @@ let project_hint pri l2r c =
   let c = Reductionops.whd_beta Evd.empty (mkApp (c,Termops.extended_rel_vect 0 sign)) in
   let c = it_mkLambda_or_LetIn
     (mkApp (p,[|mkArrow a (lift 1 b);mkArrow b (lift 1 a);c|])) sign in
-  (pri,true,Auto.PathAny,c)
+  let id =
+    Nameops.add_suffix (Nametab.basename_of_global gr) ("_proj_" ^ (if l2r then "l2r" else "r2l"))
+  in
+  let c = Declare.declare_definition ~internal:Declare.KernelSilent id c in
+    (pri,true,Auto.PathAny, Globnames.ConstRef c)
 
 let add_hints_iff l2r lc n bl =
   Auto.add_hints true bl
     (Auto.HintsResolveEntry (List.map (project_hint n l2r) lc))
 
 VERNAC COMMAND EXTEND HintResolveIffLR
-  [ "Hint" "Resolve" "->" ne_constr_list(lc) natural_opt(n)
+  [ "Hint" "Resolve" "->" ne_global_list(lc) natural_opt(n)
     ":" preident_list(bl) ] ->
   [ add_hints_iff true lc n bl ]
-| [ "Hint" "Resolve" "->" ne_constr_list(lc) natural_opt(n) ] ->
+| [ "Hint" "Resolve" "->" ne_global_list(lc) natural_opt(n) ] ->
   [ add_hints_iff true lc n ["core"] ]
 END
 VERNAC COMMAND EXTEND HintResolveIffRL
-  [ "Hint" "Resolve" "<-" ne_constr_list(lc) natural_opt(n)
+  [ "Hint" "Resolve" "<-" ne_global_list(lc) natural_opt(n)
     ":" preident_list(bl) ] ->
   [ add_hints_iff false lc n bl ]
-| [ "Hint" "Resolve" "<-" ne_constr_list(lc) natural_opt(n) ] ->
+| [ "Hint" "Resolve" "<-" ne_global_list(lc) natural_opt(n) ] ->
   [ add_hints_iff false lc n ["core"] ]
 END
 
@@ -313,7 +323,7 @@ TACTIC EXTEND refine
   [ "refine" casted_open_constr(c) ] -> [ refine c ]
 END
 
-let refine_tac = h_refine
+let refine_tac = refine
 
 (**********************************************************************)
 (* Inversion lemmas (Leminv)                                          *)

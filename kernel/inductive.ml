@@ -190,7 +190,7 @@ let type_of_inductive_knowing_parameters ?(polyprop=true) env mip paramtyps =
       (* The Ocaml extraction cannot handle (yet?) "Prop-polymorphism", i.e.
          the situation where a non-Prop singleton inductive becomes Prop
          when applied to Prop params *)
-      if not polyprop && not (is_type0m_univ ar.poly_level) && s = prop_sort
+      if not polyprop && not (is_type0m_univ ar.poly_level) && is_prop_sort s
       then raise (SingletonInductiveBecomesProp mip.mind_typename);
       mkArity (List.rev ctx,s)
 
@@ -760,7 +760,7 @@ let check_one_fix renv recpos def =
         | (App _ | LetIn _ | Cast _) -> assert false (* beta zeta reduction *)
 
   and check_nested_fix_body renv decr recArgsDecrArg body =
-    if decr = 0 then
+    if Int.equal decr 0 then
       check_rec_call (assign_var_spec renv (1,recArgsDecrArg)) [] body
     else
       match kind_of_term body with
@@ -778,7 +778,7 @@ let judgment_of_fixpoint (_, types, bodies) =
 
 let inductive_of_mutfix env ((nvect,bodynum),(names,types,bodies as recdef)) =
   let nbfix = Array.length bodies in
-  if nbfix = 0
+  if Int.equal nbfix 0
     or Array.length nvect <> nbfix
     or Array.length types <> nbfix
     or Array.length names <> nbfix

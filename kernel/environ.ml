@@ -49,8 +49,9 @@ let named_context_val env = env.env_named_context,env.env_named_vals
 let rel_context env = env.env_rel_context
 
 let empty_context env =
-  env.env_rel_context = empty_rel_context
-  && env.env_named_context = empty_named_context
+  match env.env_rel_context, env.env_named_context with
+  | [], [] -> true
+  | _ -> false
 
 (* Rel context *)
 let lookup_rel n env =
@@ -340,7 +341,7 @@ let apply_to_hyp (ctxt,vals) id f =
   let rec aux rtail ctxt vals =
     match ctxt, vals with
     | (idc,c,ct as d)::ctxt, v::vals ->
-	if idc = id then
+	if id_eq idc id then
 	  (f ctxt d rtail)::ctxt, v::vals
 	else
 	  let ctxt',vals' = aux (d::rtail) ctxt vals in
@@ -353,7 +354,7 @@ let apply_to_hyp_and_dependent_on (ctxt,vals) id f g =
   let rec aux ctxt vals =
     match ctxt,vals with
     | (idc,c,ct as d)::ctxt, v::vals ->
-	if idc = id then
+	if id_eq idc id then
 	  let sign = ctxt,vals in
 	  push_named_context_val (f d sign) sign
 	else
@@ -367,7 +368,7 @@ let insert_after_hyp (ctxt,vals) id d check =
   let rec aux ctxt vals =
     match  ctxt, vals with
     | (idc,c,ct)::ctxt', v::vals' ->
-	if idc = id then begin
+	if id_eq idc id then begin
 	  check ctxt;
 	  push_named_context_val d (ctxt,vals)
 	end else
@@ -442,7 +443,7 @@ let register =
     let nth_digit_plus_one i n = (* calculates the nth (starting with 0)
                                     digit of i and adds 1 to it
                                     (nth_digit_plus_one 1 3 = 2) *)
-      if (land) i ((lsl) 1 n) = 0 then
+      if Int.equal (i land (1 lsl n)) 0 then
         1
       else
         2
