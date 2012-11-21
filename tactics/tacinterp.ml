@@ -253,6 +253,9 @@ let interp_fresh_ident = interp_ident_gen true
 let pf_interp_ident id gl = interp_ident_gen false id (pf_env gl)
 let pf_interp_fresh_ident id gl = interp_ident_gen true id (pf_env gl)
 
+let interp_global ist gl gr = 
+  Evd.fresh_global Evd.univ_flexible (pf_env gl) (project gl) gr
+
 (* Interprets an optional identifier which must be fresh *)
 let interp_fresh_name ist env = function
   | Anonymous -> Anonymous
@@ -363,7 +366,7 @@ let interp_reference ist env = function
 let pf_interp_reference ist gl = interp_reference ist (pf_env gl)
 
 let coerce_to_inductive = function
-  | VConstr ([],c) when isInd c -> destInd c
+  | VConstr ([],c) when isInd c -> fst (destInd c)
   | _ -> raise (CannotCoerceTo "an inductive type")
 
 let interp_inductive ist = function
@@ -372,7 +375,7 @@ let interp_inductive ist = function
 
 let coerce_to_evaluable_ref env v =
   let ev = match v with
-    | VConstr ([],c) when isConst c -> EvalConstRef (destConst c)
+    | VConstr ([],c) when isConst c -> EvalConstRef (fst (destConst c))
     | VConstr ([],c) when isVar c -> EvalVarRef (destVar c)
     | VIntroPattern (IntroIdentifier id) when List.mem id (ids_of_context env)
 	-> EvalVarRef id
@@ -791,7 +794,7 @@ let interp_induction_arg ist gl arg =
 	if Tactics.is_quantified_hypothesis id gl then
           ElimOnIdent (loc,id)
 	else
-          let c = (GVar (loc,id),Some (CRef (Ident (loc,id)))) in
+          let c = (GVar (loc,id),Some (CRef (Ident (loc,id),None))) in
           let (sigma,c) = interp_constr ist env sigma c in
           ElimOnConstr (sigma,(c,NoBindings))
 
@@ -931,7 +934,7 @@ let apply_one_mhyp_context ist env gl lmatch (hypname,patv,pat) lhyps =
               with
                 | PatternMatchingFailure -> apply_one_mhyp_context_rec tl in
             match_next_pattern (fun () ->
-	      let hyp = if b<>None then refresh_universes_strict hyp else hyp in
+	      let hyp = if b<>None then (* refresh_universes_strict *) hyp else hyp in
 	      match_pat lmatch hyp pat) ()
 	| Some patv ->
 	    match b with
@@ -950,7 +953,7 @@ let apply_one_mhyp_context ist env gl lmatch (hypname,patv,pat) lhyps =
                             match_next_pattern_in_body s1.e_nxt () in
                     match_next_pattern_in_typ
                       (fun () ->
-			let hyp = refresh_universes_strict hyp in
+			let hyp = (* refresh_universes_strict *) hyp in
 			match_pat s1.e_sub hyp pat) ()
                   with PatternMatchingFailure -> apply_one_mhyp_context_rec tl
                 in
@@ -1812,10 +1815,14 @@ and interp_atomic ist gl tac =
     | VarArgType ->
         mk_hyp_value ist gl (out_gen globwit_var x)
     | RefArgType ->
-        VConstr ([],constr_of_global
-          (pf_interp_reference ist gl (out_gen globwit_ref x)))
+        let (sigma,c) =
+          interp_global ist gl (pf_interp_reference ist gl (out_gen globwit_ref x))
+	in evdref := sigma;
+	  VConstr ([], c)
     | SortArgType ->
-        VConstr ([],mkSort (interp_sort (out_gen globwit_sort x)))
+        let (sigma,s) = interp_sort !evdref (out_gen globwit_sort x) in
+	evdref := sigma;
+        VConstr ([],mkSort s)
     | ConstrArgType ->
         let (sigma,v) = mk_constr_value ist gl (out_gen globwit_constr x) in
 	evdref := sigma;
@@ -1934,7 +1941,6 @@ let hide_interp t ot gl =
   match ot with
   | None -> t gl
   | Some t' -> (tclTHEN t t') gl
-
 
 (***************************************************************************)
 (* Other entry points *)

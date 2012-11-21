@@ -12,7 +12,7 @@ open Names
    If [oracle_order kn1 kn2] is true, then unfold kn1 first.
    Note: the oracle does not introduce incompleteness, it only
    tries to postpone unfolding of "opaque" constants. *)
-val oracle_order : bool -> 'a tableKey -> 'a tableKey -> bool
+val oracle_order : bool -> constant tableKey -> constant tableKey -> bool
 
 (** Priority for the expansion of constant in the conversion test.
  * Higher levels means that the expansion is less prioritary.
@@ -22,11 +22,11 @@ val oracle_order : bool -> 'a tableKey -> 'a tableKey -> bool
 type level = Expand | Level of int | Opaque
 val transparent : level
 
-val get_strategy : 'a tableKey -> level
+val get_strategy : constant tableKey -> level
 
 (** Sets the level of a constant.
  * Level of RelKey constant cannot be set. *)
-val set_strategy : 'a tableKey -> level -> unit
+val set_strategy : constant tableKey -> level -> unit
 
 val get_transp_state : unit -> transparent_state
 

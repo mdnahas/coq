@@ -299,11 +299,7 @@ let print_namespace ns =
     print_list pr_id qn
   in
   let print_constant k body =
-    let t =
-      match body.Declarations.const_type with
-      | Declarations.PolymorphicArity (ctx,a) -> Term.mkArity (ctx, Term.Type a.Declarations.poly_level)
-      | Declarations.NonPolymorphicType t -> t
-    in
+    let t = body.Declarations.const_type in
     print_kn k ++ str":" ++ spc() ++ Printer.pr_type t
   in
   let matches mp = match_modulepath ns mp = Some [] in
@@ -447,13 +443,13 @@ let start_proof_and_print k l hook =
   start_proof_com k l hook;
   print_subgoals ()
 
-let vernac_definition (local,k) (loc,id as lid) def hook =
+let vernac_definition (local,p,k) (loc,id as lid) def hook =
   if local = Local then Dumpglob.dump_definition lid true "var"
   else Dumpglob.dump_definition lid false "def";
   (match def with
     | ProveBody (bl,t) ->   (* local binders, typ *)
  	let hook _ _ = () in
- 	  start_proof_and_print (local,DefinitionBody Definition)
+ 	  start_proof_and_print (local,p,DefinitionBody Definition)
 	    [Some lid, (bl,t,None)] hook
     | DefineBody (bl,red_option,c,typ_opt) ->
  	let red_option = match red_option with
@@ -461,9 +457,9 @@ let vernac_definition (local,k) (loc,id as lid) def hook =
           | Some r ->
 	      let (evc,env)= get_current_context () in
  		Some (snd (interp_redexp env evc r)) in
-	do_definition id (local,k) bl red_option c typ_opt hook)
+	do_definition id (local,p,k) bl red_option c typ_opt hook)
 
-let vernac_start_proof kind l lettop hook =
+let vernac_start_proof kind p l lettop hook =
   if Dumpglob.dump () then
     List.iter (fun (id, _) ->
       match id with
@@ -473,7 +469,7 @@ let vernac_start_proof kind l lettop hook =
     if lettop then
       errorlabstrm "Vernacentries.StartProof"
 	(str "Let declarations can only be used in proof editing mode.");
-  start_proof_and_print (Global, Proof kind) l hook
+  start_proof_and_print (Global, p, Proof kind) l hook
 
 let qed_display_script = ref true
 
@@ -504,7 +500,7 @@ let vernac_exact_proof c =
   Backtrack.mark_unreachable [prf]
 
 let vernac_assumption kind l nl=
-  let global = fst kind = Global in
+  let global = pi1 kind = Global in
   let status =
     List.fold_left (fun status (is_coe,(idl,c)) ->
       if Dumpglob.dump () then
@@ -516,7 +512,7 @@ let vernac_assumption kind l nl=
   in
   if not status then raise UnsafeSuccess
 
-let vernac_record k finite infer struc binders sort nameopt cfs =
+let vernac_record k poly finite infer struc binders sort nameopt cfs =
   let const = match nameopt with
     | None -> add_prefix "Build_" (snd (snd struc))
     | Some (_,id as lid) ->
@@ -529,7 +525,7 @@ let vernac_record k finite infer struc binders sort nameopt cfs =
 	| _ -> ()) cfs);
     ignore(Record.definition_structure (k,finite,infer,struc,binders,cfs,const,sort))
 
-let vernac_inductive finite infer indl =
+let vernac_inductive poly finite infer indl =
   if Dumpglob.dump () then
     List.iter (fun (((coe,lid), _, _, _, cstrs), _) ->
       match cstrs with
@@ -542,13 +538,13 @@ let vernac_inductive finite infer indl =
   match indl with
   | [ ( id , bl , c , b, RecordDecl (oc,fs) ), [] ] ->
       vernac_record (match b with Class true -> Class false | _ -> b)
-	finite infer id bl c oc fs
+	poly finite infer id bl c oc fs
   | [ ( id , bl , c , Class true, Constructors [l]), _ ] ->
       let f =
 	let (coe, ((loc, id), ce)) = l in
 	let coe' = if coe then Some true else None in
 	  (((coe', AssumExpr ((loc, Name id), ce)), None), [])
-      in vernac_record (Class true) finite infer id bl c None [f]
+      in vernac_record (Class true) poly finite infer id bl c None [f]
   | [ ( id , bl , c , Class true, _), _ ] ->
       Errors.error "Definitional classes must have a single method"
   | [ ( id , bl , c , Class false, Constructors _), _ ] ->
@@ -560,7 +556,7 @@ let vernac_inductive finite infer indl =
       | _ -> Errors.error "Cannot handle mutually (co)inductive records."
     in
     let indl = List.map unpack indl in
-    do_mutual_inductive indl (finite<>CoFinite)
+    do_mutual_inductive indl poly (finite<>CoFinite)
 
 let vernac_fixpoint l =
   if Dumpglob.dump () then
@@ -768,9 +764,9 @@ let vernac_identity_coercion stre id qids qidt =
 
 (* Type classes *)
 
-let vernac_instance abst glob sup inst props pri =
+let vernac_instance abst glob poly sup inst props pri =
   Dumpglob.dump_constraint inst false "inst";
-  ignore(Classes.new_instance ~abstract:abst ~global:glob sup inst props pri)
+  ignore(Classes.new_instance ~abstract:abst ~global:glob poly sup inst props pri)
 
 let vernac_context l =
   if not (Classes.context l) then raise UnsafeSuccess
@@ -909,7 +905,7 @@ let vernac_declare_arguments local r l nargs flags =
     error "Arguments names must be distinct.";
   let sr = smart_global r in
   let inf_names =
-    Impargs.compute_implicits_names (Global.env()) (Global.type_of_global sr) in
+    Impargs.compute_implicits_names (Global.env()) (Global.type_of_global_unsafe sr) in
   let string_of_name = function Anonymous -> "_" | Name id -> string_of_id id in
   let rec check li ld ls = match li, ld, ls with
     | [], [], [] -> ()
@@ -991,7 +987,7 @@ let vernac_declare_arguments local r l nargs flags =
 
 let vernac_reserve bl =
   let sb_decl = (fun (idl,c) ->
-    let t = Constrintern.interp_type Evd.empty (Global.env()) c in
+    let t,ctx = Constrintern.interp_type Evd.empty (Global.env()) c in
     let t = Detyping.detype false [] [] t in
     let t = Notation_ops.notation_constr_of_glob_constr [] [] t in
     Reserve.declare_reserved_type idl t)
@@ -1156,6 +1152,15 @@ let _ =
   declare_bool_option
     { optsync  = true;
       optdepr  = false;
+      optname  = "universe polymorphism";
+      optkey   = ["Universe"; "Polymorphism"];
+      optread  = Flags.is_universe_polymorphism;
+      optwrite = Flags.make_universe_polymorphism }
+
+let _ =
+  declare_bool_option
+    { optsync  = true;
+      optdepr  = false;
       optname  = "use of virtual machine inside the kernel";
       optkey   = ["Virtual";"Machine"];
       optread  = (fun () -> Vconv.use_vm ());
@@ -1306,10 +1311,12 @@ let vernac_check_may_eval redexp glopt rc =
   let (sigma, env) = get_current_context_of_args glopt in
   let sigma', c = interp_open_constr sigma env rc in
   let sigma' = Evarconv.consider_remaining_unif_problems env sigma' in
+  let sigma',nf = Evarutil.nf_evars_and_universes sigma' in
+  let c = nf c in
   let j =
     try
       Evarutil.check_evars env sigma sigma' c;
-      Arguments_renaming.rename_typing env c
+      fst (Arguments_renaming.rename_typing env c) (* FIXME *)
     with P.PretypeError (_,_,P.UnsolvableImplicit _)
       | Loc.Exc_located (_,P.PretypeError (_,_,P.UnsolvableImplicit _)) ->
       Evarutil.j_nf_evar sigma' (Retyping.get_judgment_of env sigma' c) in
@@ -1329,8 +1336,9 @@ let vernac_declare_reduction locality s r =
 let vernac_global_check c =
   let evmap = Evd.empty in
   let env = Global.env() in
-  let c = interp_constr evmap env c in
+  let c,ctx = interp_constr evmap env c in
   let senv = Global.safe_env() in
+  let senv = Safe_typing.add_constraints (snd ctx) senv in
   let j = Safe_typing.typing senv c in
   msg_notice (print_safe_judgment env j)
 
@@ -1379,7 +1387,7 @@ let vernac_print = function
     dump_global qid; msg_notice (print_impargs qid)
   | PrintAssumptions (o,t,r) ->
       (* Prints all the axioms and section variables used by a term *)
-      let cstr = constr_of_global (smart_global r) in
+      let cstr = printable_constr_of_global (smart_global r) in
       let st = Conv_oracle.get_transp_state () in
       let nassums =
 	Assumptions.assumptions st ~add_opaque:o ~add_transparent:t cstr in
@@ -1655,11 +1663,11 @@ let interp c = match c with
 
   (* Gallina *)
   | VernacDefinition (k,lid,d,f) -> vernac_definition k lid d f
-  | VernacStartTheoremProof (k,l,top,f) -> vernac_start_proof k l top f
+  | VernacStartTheoremProof (k,p,l,top,f) -> vernac_start_proof k p l top f
   | VernacEndProof e -> vernac_end_proof e
   | VernacExactProof c -> vernac_exact_proof c
   | VernacAssumption (stre,nl,l) -> vernac_assumption stre l nl
-  | VernacInductive (finite,infer,l) -> vernac_inductive finite infer l
+  | VernacInductive (poly,finite,infer,l) -> vernac_inductive poly finite infer l
   | VernacFixpoint l -> vernac_fixpoint l
   | VernacCoFixpoint l -> vernac_cofixpoint l
   | VernacScheme l -> vernac_scheme l
@@ -1686,8 +1694,8 @@ let interp c = match c with
   | VernacIdentityCoercion (str,(_,id),s,t) -> vernac_identity_coercion str id s t
 
   (* Type classes *)
-  | VernacInstance (abst, glob, sup, inst, props, pri) ->
-      vernac_instance abst glob sup inst props pri
+  | VernacInstance (abst, glob, poly, sup, inst, props, pri) ->
+      vernac_instance abst glob poly sup inst props pri
   | VernacContext sup -> vernac_context sup
   | VernacDeclareInstances (glob, ids) -> vernac_declare_instances glob ids
   | VernacDeclareClass id -> vernac_declare_class id
@@ -1741,7 +1749,7 @@ let interp c = match c with
   | VernacNop -> ()
 
   (* Proof management *)
-  | VernacGoal t -> vernac_start_proof Theorem [None,([],t,None)] false (fun _ _->())
+  | VernacGoal t -> vernac_start_proof Theorem false [None,([],t,None)] false (fun _ _->())
   | VernacAbort id -> vernac_abort id
   | VernacAbortAll -> vernac_abort_all ()
   | VernacRestart -> vernac_restart ()

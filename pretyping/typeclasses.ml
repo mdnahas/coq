@@ -77,6 +77,7 @@ type instance = {
      -1 for discard, 0 for none, mutable to avoid redeclarations
      when multiple rebuild_object happen. *)
   is_global: int;
+  is_poly: bool;
   is_impl: global_reference;
 }
 
@@ -84,7 +85,7 @@ type instances = (instance Gmap.t) Gmap.t
 
 let instance_impl is = is.is_impl
 
-let new_instance cl pri glob impl =
+let new_instance cl pri glob poly impl =
   let global =
     if glob then Lib.sections_depth ()
     else -1
@@ -92,6 +93,7 @@ let new_instance cl pri glob impl =
     { is_class = cl.cl_impl;
       is_pri = pri ;
       is_global = global ;
+      is_poly = poly;
       is_impl = impl }
 
 (*
@@ -120,7 +122,7 @@ let _ =
 
 let class_info c =
   try Gmap.find c !classes
-  with _ -> not_a_class (Global.env()) (constr_of_global c)
+  with _ -> not_a_class (Global.env()) (printable_constr_of_global c)
 
 let global_class_of_constr env c =
   try class_info (global_of_constr c)
@@ -155,7 +157,7 @@ let load_class (_, cl) =
 let cache_class = load_class
 
 let subst_class (subst,cl) =
-  let do_subst_con c = fst (Mod_subst.subst_con subst c)
+  let do_subst_con c = Mod_subst.subst_constant subst c
   and do_subst c = Mod_subst.subst_mps subst c
   and do_subst_gr gr = fst (subst_global subst gr) in
   let do_subst_ctx ctx = List.smartmap
@@ -164,7 +166,8 @@ let subst_class (subst,cl) =
   let do_subst_context (grs,ctx) =
     List.smartmap (Option.smartmap (fun (gr,b) -> do_subst_gr gr, b)) grs,
     do_subst_ctx ctx in
-  let do_subst_projs projs = List.smartmap (fun (x, y, z) -> (x, y, Option.smartmap do_subst_con z)) projs in
+  let do_subst_projs projs = List.smartmap (fun (x, y, z) -> 
+    (x, y, Option.smartmap do_subst_con z)) projs in
   { cl_impl = do_subst_gr cl.cl_impl;
     cl_context = do_subst_context cl.cl_context;
     cl_props = do_subst_ctx cl.cl_props;
@@ -278,10 +281,10 @@ let build_subclasses ~check env sigma glob pri =
 		   Some (ConstRef proj, pri, ConstRef c)) tc.cl_projs 
 	in
 	let declare_proj hints (cref, pri, body) =
-	  let rest = aux pri (constr_of_global body) in
+	  let rest = aux pri (fst (Universes.fresh_global_instance env body))(*FIXME*) in
 	    hints @ (pri, body) :: rest
 	in List.fold_left declare_proj [] projs 
-  in aux pri (constr_of_global glob)
+  in aux pri (fst (Universes.fresh_global_instance env glob))(*FIXME*)
 
 (*
  * instances persistent object
@@ -360,11 +363,10 @@ let remove_instance i =
   remove_instance_hint i.is_impl
 
 let declare_instance pri local glob =
-  let c = constr_of_global glob in
-  let ty = Retyping.get_type_of (Global.env ()) Evd.empty c in
+  let ty = Global.type_of_global_unsafe (*FIXME*) glob in
     match class_of_constr ty with
     | Some (rels, (tc, args) as _cl) ->
-      add_instance (new_instance tc pri (not local) glob)
+      add_instance (new_instance tc pri (not local) (Flags.use_polymorphic_flag ()) glob)
 (*       let path, hints = build_subclasses (not local) (Global.env ()) Evd.empty glob in *)
 (*       let entries = List.map (fun (path, pri, c) -> (pri, local, path, c)) hints in *)
 (* 	Auto.add_hints local [typeclasses_db] (Auto.HintsResolveEntry entries); *)
@@ -383,9 +385,9 @@ let add_class cl =
 
 
 open Declarations
-
+(* FIXME: deal with universe instances *)
 let add_constant_class cst =
-  let ty = Typeops.type_of_constant (Global.env ()) cst in
+  let ty = Typeops.type_of_constant_in (Global.env ()) (cst,[]) in
   let ctx, arity = decompose_prod_assum ty in
   let tc = 
     { cl_impl = ConstRef cst;
@@ -402,7 +404,7 @@ let add_inductive_class ind =
     let ctx = oneind.mind_arity_ctxt in
     let ty = Inductive.type_of_inductive_knowing_parameters
       (push_rel_context ctx (Global.env ()))
-	  oneind (Termops.extended_rel_vect 0 ctx)
+        ((mind,oneind),[]) (Termops.extended_rel_vect 0 ctx)
     in
       { cl_impl = IndRef ind;
 	cl_context = List.map (const None) ctx, ctx;
@@ -418,11 +420,14 @@ let instance_constructor cl args =
   let lenpars = List.length (List.filter (fun (na, b, t) -> b = None) (snd cl.cl_context)) in
   let pars = fst (List.chop lenpars args) in
     match cl.cl_impl with
-      | IndRef ind -> Some (applistc (mkConstruct (ind, 1)) args),
-	  applistc (mkInd ind) pars
+      | IndRef ind -> 
+      let ind, ctx = Universes.fresh_inductive_instance (Global.env ()) ind in
+        (Some (applistc (mkConstructUi (ind, 1)) args),
+	 applistc (mkIndU ind) pars), ctx
       | ConstRef cst -> 
-	let term = if args = [] then None else Some (List.last args) in
-	  term, applistc (mkConst cst) pars
+      let cst, ctx = Universes.fresh_constant_instance (Global.env ()) cst in
+      let term = if args = [] then None else Some (List.last args) in
+	(term, applistc (mkConstU cst) pars), ctx
       | _ -> assert false
 
 let typeclasses () = Gmap.fold (fun _ l c -> l :: c) !classes []

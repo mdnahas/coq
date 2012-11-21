@@ -31,7 +31,7 @@ let occur_meta_or_undefined_evar evd c =
         | Evar_defined c ->
             occrec c; Array.iter occrec args
         | Evar_empty -> raise Occur)
-    | Sort s when is_sort_variable evd s -> raise Occur
+    | Sort (Type _) (* FIXME could be finer *) -> raise Occur
     | _ -> iter_constr occrec c
   in try occrec c; false with Occur | Not_found -> true
 
@@ -322,7 +322,7 @@ let use_metas_pattern_unification flags nb l =
      Array.for_all (fun c -> isRel c && destRel c <= nb) l
 
 let expand_key env = function
-  | Some (ConstKey cst) -> constant_opt_value env cst
+  | Some (ConstKey cst) -> constant_opt_value_in env cst
   | Some (VarKey id) -> (try named_body id env with Not_found -> None)
   | Some (RelKey _) -> None
   | None -> None
@@ -333,14 +333,19 @@ let subterm_restriction is_subterm flags =
 let key_of b flags f =
   if subterm_restriction b flags then None else
   match kind_of_term f with
-  | Const cst when is_transparent (ConstKey cst) &&
+  | Const (cst,u) when is_transparent (ConstKey cst) &&
         Cpred.mem cst (snd flags.modulo_delta) ->
-      Some (ConstKey cst)
+      Some (ConstKey (cst,u))
   | Var id when is_transparent (VarKey id) &&
         Idpred.mem id (fst flags.modulo_delta) ->
       Some (VarKey id)
   | _ -> None
 
+let translate_key = function
+  | ConstKey (cst,u) -> ConstKey cst
+  | VarKey id -> VarKey id
+  | RelKey n -> RelKey n
+  
 let oracle_order env cf1 cf2 =
   match cf1 with
   | None ->
@@ -350,7 +355,7 @@ let oracle_order env cf1 cf2 =
   | Some k1 ->
       match cf2 with
       | None -> Some true
-      | Some k2 -> Some (Conv_oracle.oracle_order false k1 k2)
+      | Some k2 -> Some (Conv_oracle.oracle_order false (translate_key k1) (translate_key k2))
 
 let do_reduce ts (env, nb) sigma c =
   zip (whd_betaiota_deltazeta_for_iota_state ts env sigma (c, empty_stack))
@@ -520,7 +525,7 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
     expand curenvnb pb b wt substn cM f1 l1 cN f2 l2
 
   and reduce curenvnb pb b wt (sigma, metas, evars as substn) cM cN =
-    if use_full_betaiota flags && not (subterm_restriction b flags) then
+    if not (subterm_restriction b flags) && use_full_betaiota flags then
       let cM' = do_reduce flags.modulo_delta curenvnb sigma cM in
 	if not (eq_constr cM cM') then
 	  unirec_rec curenvnb pb b wt substn cM' cN
@@ -529,8 +534,7 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
 	    if not (eq_constr cN cN') then
 	      unirec_rec curenvnb pb b wt substn cM cN'
 	    else error_cannot_unify (fst curenvnb) sigma (cM,cN)
-    else
-      error_cannot_unify (fst curenvnb) sigma (cM,cN)
+    else error_cannot_unify (fst curenvnb) sigma (cM,cN)
 	    
   and expand (curenv,_ as curenvnb) pb b wt (sigma,metasubst,_ as substn) cM f1 l1 cN f2 l2 =
 
@@ -785,7 +789,7 @@ let applyHead env evd n c  =
     
 let is_mimick_head ts f =
   match kind_of_term f with
-  | Const c -> not (Closure.is_transparent_constant ts c)
+  | Const (c,u) -> not (Closure.is_transparent_constant ts c)
   | Var id -> not (Closure.is_transparent_variable ts id)
   | (Rel _|Construct _|Ind _) -> true
   | _ -> false
@@ -813,7 +817,7 @@ let w_coerce env evd mv c =
   w_coerce_to_type env evd c cty mvty
 
 let unify_to_type env sigma flags c status u =
-  let c = refresh_universes c in
+  (* let c = refresh_universes c in *)
   let t = get_type_of env sigma c in
   let t = nf_betaiota sigma (nf_meta sigma t) in
     unify_0 env sigma CUMUL flags t u

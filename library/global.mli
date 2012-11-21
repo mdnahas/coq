@@ -57,7 +57,6 @@ val add_include :
 val add_constraints : constraints -> unit
 
 val set_engagement : engagement -> unit
-val set_universe_consistency : bool -> unit
 
 (** {6 Interactive modules and module types }
    Both [start_*] functions take the [dir_path] argument to create a
@@ -80,15 +79,16 @@ val pack_module : unit -> module_body
 
 
 (** Queries *)
-val lookup_named     : variable -> named_declaration
-val lookup_constant  : constant -> constant_body
-val lookup_inductive : inductive -> mutual_inductive_body * one_inductive_body
-val lookup_mind      : mutual_inductive -> mutual_inductive_body
-val lookup_module    : module_path -> module_body
-val lookup_modtype   : module_path -> module_type_body
+val lookup_named      : variable -> named_declaration
+val lookup_constant   : constant -> constant_body
+val lookup_inductive  : inductive -> mutual_inductive_body * one_inductive_body
+val lookup_pinductive : pinductive -> mutual_inductive_body * one_inductive_body
+val lookup_mind       : mutual_inductive -> mutual_inductive_body
+val lookup_module     : module_path -> module_body
+val lookup_modtype    : module_path -> module_type_body
 val constant_of_delta_kn : kernel_name -> constant
-val mind_of_delta_kn : kernel_name -> mutual_inductive
-val exists_objlabel  : label -> bool
+val mind_of_delta_kn  : kernel_name -> mutual_inductive
+val exists_objlabel   : label -> bool
 
 (** Compiled modules *)
 val start_library : dir_path -> module_path
@@ -99,8 +99,15 @@ val import : compiled_library -> Digest.t -> module_path
 (** Function to get an environment from the constants part of the global
  * environment and a given context. *)
 
-val type_of_global : Globnames.global_reference -> types
+(* val type_of_global : Globnames.global_reference -> types Univ.in_universe_context_set *)
+val type_of_global_unsafe : Globnames.global_reference -> types 
 val env_of_context : Environ.named_context_val -> Environ.env
 
 (** spiwack: register/unregister function for retroknowledge *)
 val register : Retroknowledge.field -> constr -> constr -> unit
+
+(* Modifies the global state, registering new universes *)
+
+val current_dirpath : unit -> Names.dir_path
+
+val with_global : (Environ.env -> Names.dir_path -> 'a in_universe_context_set) -> 'a

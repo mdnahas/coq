@@ -32,6 +32,7 @@ open Util
 module UniverseLevel = struct
 
   type t =
+    | Prop
     | Set
     | Level of int * Names.dir_path
 
@@ -47,6 +48,9 @@ module UniverseLevel = struct
     if u == v then 0
     else
     (match u,v with
+    | Prop,Prop -> 0
+    | Prop, _ -> -1
+    | _, Prop -> 1
     | Set, Set -> 0
     | Set, _ -> -1
     | _, Set -> 1
@@ -56,12 +60,14 @@ module UniverseLevel = struct
       else Names.dir_path_ord dp1 dp2)
 
   let equal u v = match u,v with
+    | Prop, Prop -> true
     | Set, Set -> true
     | Level (i1, dp1), Level (i2, dp2) ->
       Int.equal i1 i2 && Int.equal (Names.dir_path_ord dp1 dp2) 0
     | _ -> false
 
   let to_string = function
+    | Prop -> "Prop"
     | Set -> "Set"
     | Level (n,d) -> Names.string_of_dirpath d^"."^string_of_int n
 end
@@ -70,8 +76,17 @@ module UniverseLMap = Map.Make (UniverseLevel)
 module UniverseLSet = Set.Make (UniverseLevel)
 
 type universe_level = UniverseLevel.t
+type universe_list = universe_level list
+type universe_set = UniverseLSet.t
+
+type 'a puniverses = 'a * universe_list
+let out_punivs (a, _) = a
+
+let empty_universe_list = []
+let empty_universe_set = UniverseLSet.empty
 
 let compare_levels = UniverseLevel.compare
+let eq_levels = UniverseLevel.equal
 
 (* An algebraic universe [universe] is either a universe variable
    [UniverseLevel.t] or a formal universe known to be greater than some
@@ -97,6 +112,17 @@ let universe_level = function
   | Atom l -> Some l
   | Max _ -> None
 
+let rec normalize_univ x = 
+  match x with
+  | Atom _ -> x
+  | Max ([],[]) -> Atom UniverseLevel.Prop
+  | Max ([u],[]) -> Atom u
+  | Max (gel, gtl) -> 
+    let gel' = CList.uniquize gel in
+    let gtl' = CList.uniquize gtl in
+      if gel' == gel && gtl' == gtl then x
+      else normalize_univ (Max (gel', gtl'))
+
 let pr_uni_level u = str (UniverseLevel.to_string u)
 
 let pr_uni = function
@@ -112,11 +138,19 @@ let pr_uni = function
 	  (fun x -> str "(" ++ pr_uni_level x ++ str ")+1") gtl) ++
       str ")"
 
+(* When typing [Prop] and [Set], there is no constraint on the level,
+   hence the definition of [type1_univ], the type of [Prop] *)
+
+let type1_univ = Max ([], [UniverseLevel.Set])
+
 (* Returns the formal universe that lies juste above the universe variable u.
    Used to type the sort u. *)
 let super = function
+  | Atom UniverseLevel.Prop -> type1_univ
   | Atom u ->
       Max ([],[u])
+  | Max ([],[]) (* Prop *) -> type1_univ
+  | Max (gel,[]) -> Max ([], gel)
   | Max _ ->
       anomaly ("Cannot take the successor of a non variable universe:\n"^
                "(maybe a bugged tactic)")
@@ -125,12 +159,21 @@ let super = function
    Used to type the products. *)
 let sup u v =
   match u,v with
-    | Atom u, Atom v ->
-	if UniverseLevel.equal u v then Atom u else Max ([u;v],[])
+    | Atom ua, Atom va ->
+	if UniverseLevel.equal ua va then u else
+	  if ua = UniverseLevel.Prop then v
+	  else if va = UniverseLevel.Prop then u
+	  else Max ([ua;va],[])
+    | Atom UniverseLevel.Prop, v -> v
+    | u, Atom UniverseLevel.Prop -> u
     | u, Max ([],[]) -> u
     | Max ([],[]), v -> v
-    | Atom u, Max (gel,gtl) -> Max (List.add_set u gel,gtl)
-    | Max (gel,gtl), Atom v -> Max (List.add_set v gel,gtl)
+    | Atom u, Max (gel,gtl) -> 
+       if List.mem u gtl then v
+       else Max (List.add_set u gel,gtl)
+    | Max (gel,gtl), Atom v -> 
+       if List.mem v gtl then u
+       else Max (List.add_set v gel,gtl)
     | Max (gel,gtl), Max (gel',gtl') ->
 	let gel'' = List.union gel gel' in
 	let gtl'' = List.union gtl gtl' in
@@ -162,10 +205,11 @@ let enter_arc ca g =
 
 (* The lower predicative level of the hierarchy that contains (impredicative)
    Prop and singleton inductive types *)
-let type0m_univ = Max ([],[])
+let type0m_univ = Atom UniverseLevel.Prop
 
 let is_type0m_univ = function
   | Max ([],[]) -> true
+  | Atom UniverseLevel.Prop -> true
   | _ -> false
 
 (* The level of predicative Set *)
@@ -177,13 +221,8 @@ let is_type0_univ = function
   | u -> false
 
 let is_univ_variable = function
-  | Atom a when a<>UniverseLevel.Set -> true
+  | Atom (UniverseLevel.Level _) -> true
   | _ -> false
-
-(* When typing [Prop] and [Set], there is no constraint on the level,
-   hence the definition of [type1_univ], the type of [Prop] *)
-
-let type1_univ = Max ([], [UniverseLevel.Set])
 
 let initial_universes = UniverseLMap.empty
 let is_initial_universes = UniverseLMap.is_empty
@@ -271,6 +310,7 @@ let between g arcu arcv =
  *)
 
 type constraint_type = Lt | Le | Eq
+
 type explanation = (constraint_type * universe) list
 
 let constraint_type_ord c1 c2 = match c1, c2 with
@@ -409,11 +449,12 @@ let check_eq g u v =
 
 let check_leq g u v =
   match u,v with
-    | Atom ul, Atom vl -> check_smaller g false ul vl
-    | Max(le,lt), Atom vl ->
-        List.for_all (fun ul -> check_smaller g false ul vl) le &&
-        List.for_all (fun ul -> check_smaller g true ul vl) lt
-    | _ -> anomaly "check_leq"
+  | Atom UniverseLevel.Prop, v -> true
+  | Atom ul, Atom vl -> check_smaller g false ul vl
+  | Max(le,lt), Atom vl ->
+    List.for_all (fun ul -> check_smaller g false ul vl) le &&
+    List.for_all (fun ul -> check_smaller g true ul vl) lt
+  | _ -> anomaly "check_leq"
 
 (** Enforcing new constraints : [setlt], [setleq], [merge], [merge_disc] *)
 
@@ -547,18 +588,181 @@ module Constraint = Set.Make(
 
 type constraints = Constraint.t
 
+(** A value with universe constraints. *)
+type 'a constrained = 'a * constraints
+
+(** A list of universes with universe constraints,
+    representiong local universe variables and constraints *)
+type universe_context = universe_list constrained
+
+(** A set of universes with universe constraints.
+    We linearize the set to a list after typechecking. 
+    Beware, representation could change.
+*)
+type universe_context_set = universe_set constrained
+
+(** A value in a universe context (resp. context set). *)
+type 'a in_universe_context = 'a * universe_context
+type 'a in_universe_context_set = 'a * universe_context_set
+
+(** A universe substitution, note that no algebraic universes are
+    involved *)
+type universe_subst = (universe_level * universe_level) list
+
+(** A full substitution might involve algebraic universes *)
+type universe_full_subst = (universe_level * universe) list
+
+(** Constraints *)
 let empty_constraint = Constraint.empty
 let is_empty_constraint = Constraint.is_empty
-
 let union_constraints = Constraint.union
+
+let constraints_of (_, cst) = cst
+
+(** Universe contexts (variables as a list) *)
+let empty_universe_context = ([], empty_constraint)
+let is_empty_universe_context (univs, cst) = 
+  univs = [] && is_empty_constraint cst
+
+(** Universe contexts (variables as a set) *)
+let empty_universe_context_set = (UniverseLSet.empty, empty_constraint)
+let singleton_universe_context_set u = (UniverseLSet.singleton u, empty_constraint)
+let is_empty_universe_context_set (univs, cst) = 
+  UniverseLSet.is_empty univs && is_empty_constraint cst
+
+let union_universe_context_set (univs, cst) (univs', cst') =
+  UniverseLSet.union univs univs', union_constraints cst cst'
+
+let universe_set_of_list l =
+  List.fold_left (fun acc x -> UniverseLSet.add x acc) UniverseLSet.empty l
+
+let universe_context_set_of_list l =
+  (universe_set_of_list l, empty_constraint)
+
+let constraint_depend (l,d,r) u =
+  eq_levels l u || eq_levels l r
+
+let constraint_depend_list (l,d,r) us =
+  List.mem l us || List.mem r us
+
+let constraints_depend cstr us = 
+  Constraint.exists (fun c -> constraint_depend_list c us) cstr
+
+let remove_dangling_constraints dangling cst =
+  Constraint.fold (fun (l,d,r as cstr) cst' -> 
+    if List.mem l dangling || List.mem r dangling then cst'
+    else
+      (** Unnecessary constraints Prop <= u *)
+      if l = UniverseLevel.Prop && d = Le then cst'
+      else Constraint.add cstr cst') cst Constraint.empty
+  
+let check_context_subset (univs, cst) (univs', cst') =
+  let newunivs, dangling = List.partition (fun u -> UniverseLSet.mem u univs) univs' in
+    (* Some universe variables that don't appear in the term 
+       are still mentionned in the constraints. This is the 
+       case for "fake" universe variables that correspond to +1s.
+       assert(not (constraints_depend cst' dangling));*)
+    (* TODO: check implication *)
+  (** Remove local universes that do not appear in any constraint, they
+      are really entirely parametric. *)
+  (* let newunivs, dangling' = List.partition (fun u -> constraints_depend cst [u]) newunivs in *)
+  let cst' = remove_dangling_constraints dangling cst in
+    newunivs, cst'
+
+let add_constraints_ctx (univs, cst) cst' =
+  univs, union_constraints cst cst'
+
+let add_universes_ctx univs ctx =
+  union_universe_context_set (universe_context_set_of_list univs) ctx
+
+let context_of_universe_context_set (ctx, cst) =
+  (UniverseLSet.elements ctx, cst)
+
+(** Substitutions. *)
+
+let make_universe_subst inst (ctx, csts) = 
+  try List.combine ctx inst
+  with Invalid_argument _ -> 
+    anomaly ("Mismatched instance and context when building universe substitution")
+
+(** Substitution functions *)
+let subst_univs_level subst l = 
+  try List.assoc l subst
+  with Not_found -> l
+
+let subst_univs_universe subst u =
+  match u with
+  | Atom a -> 
+    let a' = subst_univs_level subst a in
+      if a' == a then u else Atom a'
+  | Max (gel, gtl) -> 
+    let gel' = CList.smartmap (subst_univs_level subst) gel in
+    let gtl' = CList.smartmap (subst_univs_level subst) gtl in
+      if gel == gel' && gtl == gtl' then u
+      else normalize_univ (Max (gel', gtl'))
+
+let subst_univs_full_level subst l = 
+  try List.assoc l subst
+  with Not_found -> Atom l
+
+let subst_univs_full_level_opt subst l = 
+  try Some (List.assoc l subst)
+  with Not_found -> None
+
+let subst_univs_full_level_fail subst l = 
+  try 
+    (match List.assoc l subst with
+    | Atom u -> u
+    | Max _ -> anomaly "Trying to substitute an algebraic universe where only levels are allowed")
+  with Not_found -> l
+
+let subst_univs_full_universe subst u =
+  match u with
+  | Atom a -> 
+    (match subst_univs_full_level_opt subst a with
+    | Some a' -> a'
+    | None -> u)
+  | Max (gel, gtl) -> 
+    let gel' = CList.smartmap (subst_univs_full_level_fail subst) gel in
+    let gtl' = CList.smartmap (subst_univs_full_level_fail subst) gtl in
+      if gel == gel' && gtl == gtl' then u
+      else normalize_univ (Max (gel', gtl'))
+
+let subst_univs_constraint subst (u,d,v) =
+  (subst_univs_level subst u, d, subst_univs_level subst v)
+
+let subst_univs_constraints subst csts =
+  Constraint.fold 
+    (fun c -> Constraint.add (subst_univs_constraint subst c)) 
+    csts Constraint.empty 
+
+let subst_univs_context (ctx, csts) u v =
+  let ctx' = UniverseLSet.remove u ctx in
+    (ctx', subst_univs_constraints [u,v] csts)
+
+(** Substitute instance inst for ctx in csts *)
+let instantiate_univ_context subst (_, csts) = 
+  subst_univs_constraints subst csts
+
+(** Constraint functions. *)
 
 type constraint_function =
     universe -> universe -> constraints -> constraints
 
 let constraint_add_leq v u c =
-  (* We just discard trivial constraints like Set<=u or u<=u *)
-  if UniverseLevel.equal v UniverseLevel.Set || UniverseLevel.equal v u then c
+  (* We just discard trivial constraints like u<=u *)
+  if UniverseLevel.equal v u then c
   else Constraint.add (v,Le,u) c
+
+let check_univ_eq u v =
+  match u, v with
+  | (Atom u, Atom v)
+  | Atom u, Max ([v],[])
+  | Max ([u],[]), Atom v -> UniverseLevel.equal u v
+  | Max (gel,gtl), Max (gel',gtl') ->
+    compare_list UniverseLevel.equal gel gel' &&
+    compare_list UniverseLevel.equal gtl gtl'
+  | _, _ -> false
 
 let enforce_leq u v c =
   match u, v with
@@ -568,6 +772,10 @@ let enforce_leq u v c =
       List.fold_right (fun u -> Constraint.add (u,Lt,v)) gtl d
   | _ -> anomaly "A universe bound can only be a variable"
 
+let enforce_leq u v c =
+  if check_univ_eq u v then c
+  else enforce_leq u v c
+
 let enforce_eq u v c =
   match (u,v) with
     | Atom u, Atom v ->
@@ -575,8 +783,21 @@ let enforce_eq u v c =
       if UniverseLevel.equal u v then c else Constraint.add (u,Eq,v) c
     | _ -> anomaly "A universe comparison can only happen between variables"
 
+let enforce_eq u v c =
+  if check_univ_eq u v then c
+  else enforce_eq u v c
+
+let enforce_eq_level u v c =
+  if UniverseLevel.equal u v then c else Constraint.add (u,Eq,v) c
+
+let enforce_leq_level u v c =
+  if UniverseLevel.equal u v then c else Constraint.add (u,Le,v) c
+  
 let merge_constraints c g =
   Constraint.fold enforce_constraint c g
+
+let check_consistent_constraints (ctx,cstrs) cstrs' =
+  (* TODO *) ()
 
 (* Normalization *)
 
@@ -782,13 +1003,6 @@ let sort_universes orig =
 (**********************************************************************)
 (* Tools for sort-polymorphic inductive types                         *)
 
-(* Temporary inductive type levels *)
-
-let fresh_level =
-  let n = ref 0 in fun () -> incr n; UniverseLevel.Level (!n, Names.make_dirpath [])
-
-let fresh_local_univ () = Atom (fresh_level ())
-
 (* Miscellaneous functions to remove or test local univ assumed to
    occur only in the le constraints *)
 
@@ -893,6 +1107,17 @@ let pr_constraints c =
 		     in pp_std ++  pr_uni_level u1 ++ str op_str ++
 			  pr_uni_level u2 ++ fnl () )  c (str "")
 
+let pr_universe_list l = 
+  prlist_with_sep spc pr_uni_level l
+let pr_universe_set s = 
+  str"{" ++ pr_universe_list (UniverseLSet.elements s) ++ str"}"
+let pr_universe_context (ctx, cst) =
+  if ctx = [] && Constraint.is_empty cst then mt() else
+    pr_universe_list ctx ++ str " |= " ++ v 1 (pr_constraints cst)
+let pr_universe_context_set (ctx, cst) = 
+  if UniverseLSet.is_empty ctx && Constraint.is_empty cst then mt() else
+    pr_universe_set ctx ++ str " |= " ++ v 1 (pr_constraints cst)
+
 (* Dumping constraints to a file *)
 
 let dump_universes output g =
@@ -914,11 +1139,13 @@ module Hunivlevel =
       type t = universe_level
       type u = Names.dir_path -> Names.dir_path
       let hashcons hdir = function
+	| UniverseLevel.Prop -> UniverseLevel.Prop
 	| UniverseLevel.Set -> UniverseLevel.Set
 	| UniverseLevel.Level (n,d) -> UniverseLevel.Level (n,hdir d)
       let equal l1 l2 =
         l1 == l2 ||
         match l1,l2 with
+	| UniverseLevel.Prop, UniverseLevel.Prop -> true
 	| UniverseLevel.Set, UniverseLevel.Set -> true
 	| UniverseLevel.Level (n,d), UniverseLevel.Level (n',d') ->
 	  n == n' && d == d'
@@ -926,8 +1153,7 @@ module Hunivlevel =
       let hash = Hashtbl.hash
     end)
 
-module Huniv =
-  Hashcons.Make(
+module Hunivcons =
     struct
       type t = universe
       type u = universe_level -> universe_level
@@ -943,10 +1169,27 @@ module Huniv =
               (List.for_all2eq (==) gtl gtl')
 	  | _ -> false
       let hash = Hashtbl.hash
-    end)
+    end
+
+module Huniv =
+  Hashcons.Make(Hunivcons)
 
 let hcons_univlevel = Hashcons.simple_hcons Hunivlevel.generate Names.hcons_dirpath
 let hcons_univ = Hashcons.simple_hcons Huniv.generate hcons_univlevel
+
+let hcons_univ x = hcons_univ (normalize_univ x)
+
+let equal_universes x y = 
+  let x' = hcons_univ x and y' = hcons_univ y in
+    if Hunivcons.equal x' y' then true
+    else 
+      (match x', y' with
+      | Atom _, Atom _ -> false (* already handled *)
+      | Max (gel, gtl), Max (gel', gtl') -> 
+	(* Consider lists as sets, i.e. up to reordering,
+	   they are already without duplicates thanks to normalization. *)
+        CList.eq_set gel gel' && CList.eq_set gtl gtl'
+      | _, _ -> false)
 
 module Hconstraint =
   Hashcons.Make(
@@ -975,3 +1218,36 @@ module Hconstraints =
 
 let hcons_constraint = Hashcons.simple_hcons Hconstraint.generate hcons_univlevel
 let hcons_constraints = Hashcons.simple_hcons Hconstraints.generate hcons_constraint
+
+module Huniverse_list = 
+  Hashcons.Make(
+    struct
+      type t = universe_list
+      type u = universe_level -> universe_level
+      let hashcons huc s =
+	List.fold_left (fun a x -> huc x :: a) s []
+      let equal s s' = List.for_all2eq (==) s s'
+      let hash = Hashtbl.hash
+    end)
+
+let hcons_universe_list = 
+  Hashcons.simple_hcons Huniverse_list.generate hcons_univlevel
+let hcons_universe_context (v, c) = 
+  (hcons_universe_list v, hcons_constraints c)
+
+module Huniverse_set = 
+  Hashcons.Make(
+    struct
+      type t = universe_set
+      type u = universe_level -> universe_level
+      let hashcons huc s =
+	UniverseLSet.fold (fun x -> UniverseLSet.add (huc x)) s UniverseLSet.empty
+      let equal s s' =
+	UniverseLSet.equal s s'
+      let hash = Hashtbl.hash
+    end)
+
+let hcons_universe_set = 
+  Hashcons.simple_hcons Huniverse_set.generate hcons_univlevel
+let hcons_universe_context_set (v, c) = 
+  (hcons_universe_set v, hcons_constraints c)

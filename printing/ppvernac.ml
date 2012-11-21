@@ -325,18 +325,20 @@ let pr_class_rawexpr = function
   | SortClass -> str"Sortclass"
   | RefClass qid -> pr_smart_global qid
 
-let pr_assumption_token many = function
-  | (Local,Logical) ->
-      str (if many then "Hypotheses" else "Hypothesis")
-  | (Local,Definitional) ->
-      str (if many then "Variables" else "Variable")
-  | (Global,Logical) ->
-      str (if many then "Axioms" else "Axiom")
-  | (Global,Definitional) ->
-      str (if many then "Parameters" else "Parameter")
-  | (Global,Conjectural) -> str"Conjecture"
-  | (Local,Conjectural) ->
-      anomaly "Don't know how to beautify a local conjecture"
+let pr_assumption_token many (l,p,k) = 
+  let s = match l, k with
+    | (Local,Logical) ->
+	str (if many then "Hypotheses" else "Hypothesis")
+    | (Local,Definitional) ->
+	str (if many then "Variables" else "Variable")
+    | (Global,Logical) ->
+	str (if many then "Axioms" else "Axiom")
+    | (Global,Definitional) ->
+	str (if many then "Parameters" else "Parameter")
+    | (Global,Conjectural) -> str"Conjecture"
+    | (Local,Conjectural) ->
+	anomaly "Don't know how to beautify a local conjecture"
+  in if p then str "Polymorphic " ++ s else s
 
 let pr_params pr_c (xl,(c,t)) =
   hov 2 (prlist_with_sep sep pr_lident xl ++ spc() ++
@@ -398,6 +400,11 @@ let pr_statement head (id,(bl,c,guard)) =
     (match bl with [] -> mt() | _ -> pr_binders bl ++ spc()) ++
     pr_opt (pr_guard_annot pr_lconstr_expr bl) guard ++
     str":" ++ pr_spc_lconstr c)
+
+let pr_poly p = 
+  if Flags.is_universe_polymorphism () then
+    if not p then str"Monomorphic " else mt ()
+  else if p then str"Polymorphic " else mt ()
 
 (**************************************)
 (* Pretty printer for vernac commands *)
@@ -586,7 +593,9 @@ let rec pr_vernac = function
 
   (* Gallina *)
   | VernacDefinition (d,id,b,f) -> (* A verifier... *)
-      let pr_def_token dk = str (Kindops.string_of_definition_kind dk) in
+      let pr_def_token (l,p,k) =
+	pr_poly p ++
+	str (Kindops.string_of_definition_kind (l,k)) in
       let pr_reduce = function
         | None -> mt()
         | Some r ->
@@ -608,8 +617,8 @@ let rec pr_vernac = function
         | None -> mt()
         | Some cc -> str" :=" ++ spc() ++ cc))
 
-  | VernacStartTheoremProof (ki,l,_,_) ->
-      hov 1 (pr_statement (pr_thm_token ki) (List.hd l) ++
+  | VernacStartTheoremProof (ki,p,l,_,_) ->
+      hov 1 (pr_poly p ++ pr_statement (pr_thm_token ki) (List.hd l) ++
              prlist (pr_statement (spc () ++ str "with")) (List.tl l))
 
   | VernacEndProof Admitted -> str"Admitted"
@@ -625,8 +634,7 @@ let rec pr_vernac = function
       hov 2
         (pr_assumption_token (n > 1) stre ++ spc() ++
 	 pr_ne_params_list pr_lconstr_expr l)
-  | VernacInductive (f,i,l) ->
-
+  | VernacInductive (p,f,i,l) ->
       let pr_constructor (coe,(id,c)) =
         hov 2 (pr_lident id ++ str" " ++
                (if coe then str":>" else str":") ++
@@ -656,7 +664,7 @@ let rec pr_vernac = function
 	match k with Record -> "Record" | Structure -> "Structure"
 	  | Inductive_kw -> "Inductive" | CoInductive -> "CoInductive"
 	  | Class _ -> "Class" in
-      hov 1 (pr_oneind key (List.hd l)) ++
+      hov 1 (pr_poly p ++ pr_oneind key (List.hd l)) ++
       (prlist (fun ind -> fnl() ++ hov 1 (pr_oneind "with" ind)) (List.tl l))
 
 
@@ -713,7 +721,7 @@ let rec pr_vernac = function
 	spc() ++ str":" ++ spc() ++ pr_class_rawexpr c1 ++ spc() ++ str">->" ++
 	spc() ++ pr_class_rawexpr c2)
 
- | VernacInstance (abst,glob, sup, (instid, bk, cl), props, pri) ->
+ | VernacInstance (abst,glob,poly,sup, (instid, bk, cl), props, pri) ->
      hov 1 (
        pr_non_locality (not glob) ++
        (if abst then str"Declare " else mt ()) ++

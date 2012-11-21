@@ -45,9 +45,9 @@ let flex_kind_of_term c =
 
 let eval_flexible_term ts env c =
   match kind_of_term c with
-  | Const c ->
+  | Const (c,u as cu) ->
       if is_transparent_constant ts c
-      then constant_opt_value env c
+      then constant_opt_value_in env cu
       else None
   | Rel n ->
       (try let (_,v,_) = lookup_rel n env in Option.map (lift n) v
@@ -208,6 +208,14 @@ let ise_stack2 no_app env evd f sk1 sk2 =
 let exact_ise_stack2 env evd f sk1 sk2 =
   match ise_stack2 false env evd f sk1 sk2 with | None, out -> out | _ -> (evd, false)
 
+let eq_puniverses evd f (x,u) (y,v) =
+  if f x y then 
+    let evdref = ref evd in
+      try List.iter2 (fun x y -> evdref := Evd.set_eq_level !evdref x y) u v;
+	  (!evdref, true)
+      with _ -> (evd, false)
+  else (evd, false)
+
 let rec evar_conv_x ts env evd pbty term1 term2 =
   let term1 = whd_head_evar evd term1 in
   let term2 = whd_head_evar evd term2 in
@@ -315,7 +323,7 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
 	ise_try evd [f1; f2]
 
 	| _, _ ->
-	let f1 i =
+	let f1 i = (* FIXME will unfold polymorphic constants always *)
 	  if eq_constr term1 term2 then
 	    exact_ise_stack2 env i (evar_conv_x ts) sk1 sk2
 	  else
@@ -339,7 +347,8 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
             | Lambda _ -> assert(args = []); true
             | LetIn (_,b,_,c) ->
                 is_unnamed (whd_betaiota_deltazeta_for_iota_state ts env i (subst1 b c, args))
-            | Case _| Fix _| App _| Cast _ -> assert false in
+	    | Fix _ -> true
+            | Case _| App _| Cast _ -> assert false in
           let rhs_is_stuck_and_unnamed () =
             match eval_flexible_term ts env term2 with
             | None -> false
@@ -457,14 +466,14 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
 	         evar_conv_x ts (push_rel (n,None,c) env) i pbty c'1 c'2)]
 
 	| Ind sp1, Ind sp2 ->
-	    if eq_ind sp1 sp2 then
-              exact_ise_stack2 env evd (evar_conv_x ts) sk1 sk2
-            else (evd, false)
+	     ise_and evd
+	       [(fun i -> eq_puniverses i eq_ind sp1 sp2);
+		(fun i -> exact_ise_stack2 env i (evar_conv_x ts) sk1 sk2)]
 
 	| Construct sp1, Construct sp2 ->
-	    if eq_constructor sp1 sp2 then
-              exact_ise_stack2 env evd (evar_conv_x ts) sk1 sk2
-            else (evd, false)
+	     ise_and evd
+	       [(fun i -> eq_puniverses i eq_constructor sp1 sp2);
+		(fun i -> exact_ise_stack2 env i (evar_conv_x ts) sk1 sk2)]
 
 	| CoFix (i1,(_,tys1,bds1 as recdef1)), CoFix (i2,(_,tys2,bds2)) ->
             if i1=i2  then
@@ -714,7 +723,8 @@ let apply_conversion_problem_heuristic ts env evd pbty t1 t2 =
       solve_refl ~can_drop:true f env evd evk1 args1 args2, true
   | Evar ev1, Evar ev2 ->
       solve_evar_evar ~force:true
-        (evar_define (evar_conv_x ts)) (evar_conv_x ts) env evd ev1 ev2, true
+        (evar_define (evar_conv_x ts) (position_problem true pbty)) 
+         (evar_conv_x ts) env evd ev1 ev2, true
   | Evar ev1,_ when List.length l1 <= List.length l2 ->
       (* On "?n t1 .. tn = u u1 .. u(n+p)", try first-order unification *)
       (* and otherwise second-order matching *)
@@ -770,7 +780,7 @@ let rec solve_unconstrained_evars_with_canditates evd =
       | a::l ->
           try
             let conv_algo = evar_conv_x full_transparent_state in
-            let evd = check_evar_instance evd evk a conv_algo in
+            let evd = check_evar_instance evd evk a None (* FIXME Not sure *) conv_algo in
             let evd = Evd.define evk a evd in
             let evd,b = reconsider_conv_pbs conv_algo evd in
             if b then solve_unconstrained_evars_with_canditates evd

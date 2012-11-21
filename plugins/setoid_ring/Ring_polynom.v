@@ -6,10 +6,11 @@
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
-Set Implicit Arguments.
-Require Import Setoid Morphisms BinList BinPos BinNat BinInt.
-Require Export Ring_theory.
 
+Set Implicit Arguments.
+Require Import Setoid Morphisms. 
+Require Import BinList BinPos BinNat BinInt.
+Require Export Ring_theory.
 Local Open Scope positive_scope.
 Import RingSyntax.
 
@@ -26,7 +27,7 @@ Section MakeRingPol.
  Variable ARth : almost_ring_theory rO rI radd rmul rsub ropp req.
 
  (* Coefficients *)
- Variable C: Type.
+ Variable C: Set.
  Variable (cO cI: C) (cadd cmul csub : C->C->C) (copp : C->C).
  Variable ceqb : C->C->bool.
  Variable phi : C -> R.
@@ -34,7 +35,7 @@ Section MakeRingPol.
                                 cO cI cadd cmul csub copp ceqb phi.
 
  (* Power coefficients *)
- Variable Cpow : Type.
+ Variable Cpow : Set.
  Variable Cp_phi : N -> Cpow.
  Variable rpow : R -> Cpow -> R.
  Variable pow_th : power_theory rI rmul req Cp_phi rpow.
@@ -109,7 +110,7 @@ Section MakeRingPol.
     - (Pinj i (Pc c)) is (Pc c)
  *)
 
- Inductive Pol : Type :=
+ Inductive Pol : Set :=
   | Pc : C -> Pol
   | Pinj : positive -> Pol -> Pol
   | PX : Pol -> positive -> Pol -> Pol.
@@ -822,7 +823,8 @@ Section MakeRingPol.
  destruct cM as (c,M). revert M l.
  induction P; destruct M; intros l; simpl; auto;
  try (case ceqb_spec; intro He);
-  try (case Pos.compare_spec; intros He); rewrite ?He;
+  try (case Pos.compare_spec; intros He);
+  rewrite ?He;
    destr_factor; simpl; Esimpl.
  - assert (H := div_th.(div_eucl_th) c0 c).
    destruct cdiv as (q,r). rewrite H; Esimpl. add_permut.
@@ -906,7 +908,7 @@ Section MakeRingPol.
 
  (** Definition of polynomial expressions *)
 
- Inductive PExpr : Type :=
+ Inductive PExpr : Set :=
   | PEc : C -> PExpr
   | PEX : positive -> PExpr
   | PEadd : PExpr -> PExpr -> PExpr

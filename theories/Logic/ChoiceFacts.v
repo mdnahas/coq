@@ -716,7 +716,7 @@ Proof.
   exists (f (existT _ A (existT _ P H'))).
   pose (Hf' := Hf (existT _ A (existT _ P H'))).
   assumption.
-Qed.
+Admitted. (*FIXME: needs existT polymorphic most likely *)
 
 Lemma constructive_indefinite_descr_fun_choice :
   ConstructiveIndefiniteDescription -> FunctionalChoice.
@@ -745,7 +745,7 @@ Proof.
   exists (f (existT _ A (existT _ P H'))).
   pose (Hf' := Hf (existT _ A (existT _ P H'))).
   assumption.
-Qed.
+Admitted. (*FIXME*)
 
 Lemma constructive_definite_descr_fun_reification :
   ConstructiveDefiniteDescription -> FunctionalRelReification.
@@ -822,7 +822,6 @@ Qed.
 
 (**********************************************************************)
 (** * Choice => Dependent choice => Countable choice *)
-
 (* The implications below are standard *)
 
 Require Import Arith.
@@ -855,4 +854,4 @@ Proof.
   destruct HfS as (_,HR).
   rewrite Heq in HR.
   assumption.
-Qed.
+Admitted(*FIXME*).

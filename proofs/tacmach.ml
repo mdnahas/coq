@@ -71,7 +71,7 @@ let pf_get_new_ids ids gls =
     ids []
 
 let pf_global gls id = Constrintern.construct_reference (pf_hyps gls) id
-
+    
 let pf_parse_const gls = compose (pf_global gls) id_of_string
 
 let pf_reduction_of_red_expr gls re c =
@@ -93,7 +93,7 @@ let pf_get_type_of               = pf_reduce Retyping.get_type_of
 
 let pf_conv_x                   = pf_reduce is_conv
 let pf_conv_x_leq               = pf_reduce is_conv_leq
-let pf_const_value              = pf_reduce (fun env _ -> constant_value env)
+let pf_const_value              = pf_reduce (fun env _ -> constant_value_in env)
 let pf_reduce_to_quantified_ind = pf_reduce reduce_to_quantified_ind
 let pf_reduce_to_atomic_ind     = pf_reduce reduce_to_atomic_ind
 

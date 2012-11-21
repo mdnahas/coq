@@ -143,31 +143,40 @@ let test_plurial_form_types = function
    (strbrk "Keywords Implicit Types expect more than one type")
   | _ -> ()
 
+let add_polymorphism (l,k) = (l, Flags.use_polymorphic_flag (), k)
+
 (* Gallina declarations *)
 GEXTEND Gram
   GLOBAL: gallina gallina_ext thm_token def_body of_type_with_opt_coercion
     record_field decl_notation rec_definition;
 
   gallina:
+    [ [ _ = [ "Polymorphic" -> Flags.make_polymorphic_flag true |
+	  | "Monomorphic" -> Flags.make_polymorphic_flag false ]; 
+	g = gallina_def -> g ] ]
+   ;
+ 
+  gallina_def:
       (* Definition, Theorem, Variable, Axiom, ... *)
     [ [ thm = thm_token; id = identref; bl = binders; ":"; c = lconstr;
         l = LIST0
           [ "with"; id = identref; bl = binders; ":"; c = lconstr ->
-            (Some id,(bl,c,None)) ] ->
-          VernacStartTheoremProof (thm,(Some id,(bl,c,None))::l, false, no_hook)
+          (Some id,(bl,c,None)) ] ->
+          VernacStartTheoremProof (thm, Flags.use_polymorphic_flag (),
+				   (Some id,(bl,c,None))::l, false, no_hook)
       | stre = assumption_token; nl = inline; bl = assum_list ->
-	  VernacAssumption (stre, nl, bl)
+	  VernacAssumption (add_polymorphism stre, nl, bl)
       | stre = assumptions_token; nl = inline; bl = assum_list ->
 	  test_plurial_form bl;
-	  VernacAssumption (stre, nl, bl)
+	  VernacAssumption (add_polymorphism stre, nl, bl)
       | (f,d) = def_token; id = identref; b = def_body ->
-          VernacDefinition (d, id, b, f)
+          VernacDefinition (add_polymorphism d, id, b, f)
       (* Gallina inductive declarations *)
       | f = finite_token;
         indl = LIST1 inductive_definition SEP "with" ->
 	  let (k,f) = f in
 	  let indl=List.map (fun ((a,b,c,d),e) -> ((a,b,c,k,d),e)) indl in
-          VernacInductive (f,false,indl)
+          VernacInductive (Flags.use_polymorphic_flag (), f,false,indl)
       | "Fixpoint"; recs = LIST1 rec_definition SEP "with" ->
           VernacFixpoint recs
       | "CoFixpoint"; corecs = LIST1 corec_definition SEP "with" ->
@@ -183,7 +192,8 @@ GEXTEND Gram
 	cfs = [ ":="; l = constructor_list_or_record_decl -> l
 	  | -> RecordDecl (None, []) ] ->
 	  let (recf,indf) = b in
-	    VernacInductive (indf,infer,[((oc,name),ps,s,recf,cfs),[]])
+	    VernacInductive (Flags.use_polymorphic_flag (),
+			     indf,infer,[((oc,name),ps,s,recf,cfs),[]])
   ] ]
   ;
   thm_token:
@@ -534,16 +544,16 @@ GEXTEND Gram
           d = def_body ->
           let s = coerce_reference_to_id qid in
 	  VernacDefinition
-	    ((Global,CanonicalStructure),(Loc.ghost,s),d,
+	    (add_polymorphism (Global,CanonicalStructure),(Loc.ghost,s),d,
 	     (fun _ -> Recordops.declare_canonical_structure))
 
       (* Coercions *)
       | IDENT "Coercion"; qid = global; d = def_body ->
           let s = coerce_reference_to_id qid in
-	  VernacDefinition ((use_locality_exp (),Coercion),(Loc.ghost,s),d,Class.add_coercion_hook)
+	  VernacDefinition (add_polymorphism (use_locality_exp (),Coercion),(Loc.ghost,s),d,Class.add_coercion_hook)
       | IDENT "Coercion"; IDENT "Local"; qid = global; d = def_body ->
            let s = coerce_reference_to_id qid in
-	  VernacDefinition ((enforce_locality_exp true,Coercion),(Loc.ghost,s),d,Class.add_coercion_hook)
+	  VernacDefinition (add_polymorphism (enforce_locality_exp true, Coercion),(Loc.ghost,s),d,Class.add_coercion_hook)
       | IDENT "Identity"; IDENT "Coercion"; IDENT "Local"; f = identref;
          ":"; s = class_rawexpr; ">->"; t = class_rawexpr ->
 	   VernacIdentityCoercion (enforce_locality_exp true, f, s, t)
@@ -571,7 +581,7 @@ GEXTEND Gram
 	 pri = OPT [ "|"; i = natural -> i ] ;
 	 props = [ ":="; "{"; r = record_declaration; "}" -> Some r |
 	     ":="; c = lconstr -> Some c | -> None ] ->
-	   VernacInstance (false, not (use_section_locality ()),
+	   VernacInstance (false, not (use_section_locality ()), false,
 			   snd namesup, (fst namesup, expl, t), props, pri)
 
       | IDENT "Existing"; IDENT "Instance"; id = global ->
@@ -719,7 +729,7 @@ GEXTEND Gram
       | IDENT "Declare"; IDENT "Instance"; namesup = instance_name; ":";
 	 expl = [ "!" -> Decl_kinds.Implicit | -> Decl_kinds.Explicit ] ; t = operconstr LEVEL "200";
 	 pri = OPT [ "|"; i = natural -> i ] ->
-	   VernacInstance (true, not (use_section_locality ()),
+	   VernacInstance (true, not (use_section_locality ()), false,
 			   snd namesup, (fst namesup, expl, t),
 			   None, pri)
 

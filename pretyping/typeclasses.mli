@@ -52,7 +52,7 @@ val add_constant_class : constant -> unit
 
 val add_inductive_class : inductive -> unit
 
-val new_instance : typeclass -> int option -> bool -> global_reference -> instance
+val new_instance : typeclass -> int option -> bool -> polymorphic -> global_reference -> instance
 val add_instance : instance -> unit
 val remove_instance : instance -> unit
 
@@ -75,7 +75,8 @@ val is_implicit_arg : Evar_kinds.t -> bool
 (** Returns the term and type for the given instance of the parameters and fields
    of the type class. *)
 
-val instance_constructor : typeclass -> constr list -> constr option * types
+val instance_constructor : typeclass -> constr list -> 
+  (constr option * types) Univ.in_universe_context_set
 
 (** Resolvability.
     Only undefined evars can be marked or checked for resolvability. *)

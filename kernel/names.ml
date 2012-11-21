@@ -46,6 +46,8 @@ let id_ord = String.compare
 
 let id_eq = String.equal
 
+let eq_id id id' = id_ord id id' = 0
+
 module IdOrdered =
   struct
     type t = identifier
@@ -175,6 +177,11 @@ let rec string_of_mp = function
   | MPfile sl -> string_of_dirpath sl
   | MPbound uid -> string_of_uid uid
   | MPdot (mp,l) -> string_of_mp mp ^ "." ^ string_of_label l
+
+let rec dp_of_mp = function
+  | MPfile sl -> sl
+  | MPbound (_,_,dp) -> dp
+  | MPdot (mp,l) -> dp_of_mp mp
 
 (** we compare labels first if both are MPdots *)
 let rec mp_ord mp1 mp2 =
@@ -338,11 +345,11 @@ let debug_string_of_mind mind =
   "(" ^ string_of_kn (fst mind) ^ "," ^ string_of_kn (snd mind) ^ ")"
 let debug_pr_mind con = str (debug_string_of_mind con)
 
-let ith_mutual_inductive (kn, _) i = (kn, i)
-let ith_constructor_of_inductive ind i = (ind, i)
-let inductive_of_constructor (ind, i) = ind
-let index_of_constructor (ind, i) = i
-
+let ith_mutual_inductive (kn,_) i = (kn,i)
+let ith_constructor_of_inductive ind i = (ind,i)
+let ith_constructor_of_pinductive (ind,u) i = ((ind,i),u)
+let inductive_of_constructor (ind,i) = ind
+let index_of_constructor (ind,i) = i
 let eq_ind (kn1, i1) (kn2, i2) = Int.equal i1 i2 && eq_mind kn1 kn2
 
 let eq_constructor (kn1, i1) (kn2, i2) = Int.equal i1 i2 && eq_ind kn1 kn2
@@ -512,8 +519,7 @@ let hcons_mind = Hashcons.simple_hcons Hcn.generate hcons_kn
 let hcons_ind = Hashcons.simple_hcons Hind.generate hcons_mind
 let hcons_construct = Hashcons.simple_hcons Hconstruct.generate hcons_ind
 
-
-(*******)
+(*****************)
 
 type transparent_state = Idpred.t * Cpred.t
 
@@ -521,26 +527,29 @@ let empty_transparent_state = (Idpred.empty, Cpred.empty)
 let full_transparent_state = (Idpred.full, Cpred.full)
 let var_full_transparent_state = (Idpred.full, Cpred.empty)
 let cst_full_transparent_state = (Idpred.empty, Cpred.full)
+(******************)
 
 type 'a tableKey =
-  | ConstKey of constant
+  | ConstKey of 'a
   | VarKey of identifier
-  | RelKey of 'a
+  | RelKey of Int.t
 
 
 type inv_rel_key = int (* index in the [rel_context] part of environment
 			  starting by the end, {\em inverse}
 			  of de Bruijn indice *)
 
-type id_key = inv_rel_key tableKey
+type id_key = constant tableKey
 
-let eq_id_key ik1 ik2 =
-  if ik1 == ik2 then true
-  else match ik1,ik2 with
-  | ConstKey (u1, kn1), ConstKey (u2, kn2) ->
-    let ans = Int.equal (kn_ord u1 u2) 0 in
+let eq_constant_key (u1, kn1) (u2, kn2) =
+  let ans = Int.equal (kn_ord u1 u2) 0 in
     if ans then Int.equal (kn_ord kn1 kn2) 0
     else ans
+
+let eq_table_key fn ik1 ik2 =
+  if ik1 == ik2 then true
+  else match ik1,ik2 with
+  | ConstKey ck1, ConstKey ck2 -> fn ck1 ck2
   | VarKey id1, VarKey id2 ->
     Int.equal (id_ord id1 id2) 0
   | RelKey k1, RelKey k2 -> Int.equal k1 k2
@@ -549,3 +558,5 @@ let eq_id_key ik1 ik2 =
 let eq_con_chk (kn1,_) (kn2,_) = Int.equal (kn_ord kn1 kn2) 0
 let eq_mind_chk (kn1,_) (kn2,_) = Int.equal (kn_ord kn1 kn2) 0
 let eq_ind_chk (kn1,i1) (kn2,i2) = Int.equal i1 i2 && eq_mind_chk kn1 kn2
+
+let eq_id_key = eq_table_key eq_constant_key

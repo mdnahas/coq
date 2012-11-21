@@ -40,7 +40,12 @@ val e_new_evar :
 (** Create a new Type existential variable, as we keep track of 
     them during type-checking and unification. *)
 val new_type_evar :
-  ?src:Loc.t * Evar_kinds.t -> ?filter:bool list -> evar_map -> env -> evar_map * constr
+  ?src:Loc.t * Evar_kinds.t -> ?filter:bool list -> rigid -> evar_map -> env -> 
+  evar_map * (constr * sorts)
+
+val e_new_type_evar : evar_map ref ->
+  ?src:Loc.t * Evar_kinds.t -> ?filter:bool list -> rigid -> env -> constr * sorts
+
 
 (** Create a fresh evar in a context different from its definition context:
    [new_evar_instance sign evd ty inst] creates a new evar of context
@@ -58,12 +63,17 @@ val make_pure_subst : evar_info -> constr array -> (identifier * constr) list
 type conv_fun =
   env ->  evar_map -> conv_pb -> constr -> constr -> evar_map * bool
 
-(** [evar_define choose env ev c] try to instantiate [ev] with [c] (typed in [env]),
+(** [evar_define pbty choose env ev c] try to instantiate [ev] with [c] (typed in [env]),
    possibly solving related unification problems, possibly leaving open
    some problems that cannot be solved in a unique way (except if choose is
-   true); fails if the instance is not valid for the given [ev] *)
-val evar_define : conv_fun -> ?choose:bool -> env -> evar_map -> 
+   true); fails if the instance is not valid for the given [ev].
+   [pbty] indicates if [c] is supposed to be in a subtype of [ev], or in a
+   supertype (hence equating the universe levels of [c] and [ev]).
+*)
+val evar_define : conv_fun -> bool option -> ?choose:bool -> env -> evar_map -> 
   existential -> constr -> evar_map
+
+val refresh_universes : bool -> evar_map -> types -> evar_map * types
 
 (** {6 Evars/Metas switching...} *)
 
@@ -83,6 +93,9 @@ val head_evar : constr -> existential_key (** may raise NoHeadEvar *)
 (* Expand head evar if any *)
 val whd_head_evar :  evar_map -> constr -> constr
 
+(* [has_undefined_evars or_sorts evd c] checks if [c] has undefined evars
+   and optionally if it contains undefined sorts. *)
+val has_undefined_evars : bool -> evar_map -> constr -> bool
 val is_ground_term :  evar_map -> constr -> bool
 val is_ground_env  :  evar_map -> env -> bool
 val solve_refl : ?can_drop:bool -> conv_fun -> env ->  evar_map ->
@@ -184,6 +197,11 @@ val nf_evar_info : evar_map -> evar_info -> evar_info
 val nf_evar_map : evar_map -> evar_map
 val nf_evar_map_undefined : evar_map -> evar_map
 
+val nf_evars_and_universes : evar_map -> evar_map * (constr -> constr)
+val e_nf_evars_and_universes : evar_map ref -> constr -> constr
+
+val subst_univs_full_constr : Univ.universe_full_subst -> constr -> constr
+
 (** Replacing all evars, possibly raising [Uninstantiated_evar] *)
 exception Uninstantiated_evar of existential_key
 val flush_and_check_evars :  evar_map -> constr -> constr
@@ -218,6 +236,11 @@ val push_rel_context_to_named_context : Environ.env -> types ->
 
 val generalize_evar_over_rels : evar_map -> existential -> types * constr list
 
-val check_evar_instance : evar_map -> existential_key -> constr -> conv_fun ->
-  evar_map
+val check_evar_instance : evar_map -> existential_key -> constr -> bool option -> 
+  conv_fun -> evar_map
 
+(** Evar combinators *)
+
+val evd_comb0 : (evar_map -> evar_map * 'a) -> evar_map ref -> 'a
+val evd_comb1 : (evar_map -> 'b -> evar_map * 'a) -> evar_map ref -> 'b -> 'a
+val evd_comb2 : (evar_map -> 'b -> 'c -> evar_map * 'a) -> evar_map ref -> 'b -> 'c -> 'a

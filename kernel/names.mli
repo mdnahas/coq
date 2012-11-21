@@ -119,6 +119,8 @@ val repr_kn : kernel_name -> module_path * dir_path * label
 val modpath : kernel_name -> module_path
 val label : kernel_name -> label
 
+val dp_of_mp : module_path -> dir_path
+
 val string_of_kn : kernel_name -> string
 val pr_kn : kernel_name -> Pp.std_ppcmds
 
@@ -223,13 +225,7 @@ val hcons_mind : mutual_inductive -> mutual_inductive
 val hcons_ind : inductive -> inductive
 val hcons_construct : constructor -> constructor
 
-(******)
-
-type 'a tableKey =
-  | ConstKey of constant
-  | VarKey of identifier
-  | RelKey of 'a
-
+(** Sets of names *)
 type transparent_state = Idpred.t * Cpred.t
 
 val empty_transparent_state : transparent_state
@@ -237,12 +233,21 @@ val full_transparent_state : transparent_state
 val var_full_transparent_state : transparent_state
 val cst_full_transparent_state : transparent_state
 
+
+type 'a tableKey =
+  | ConstKey of 'a
+  | VarKey of identifier
+  | RelKey of Int.t
+
 type inv_rel_key = int (** index in the [rel_context] part of environment
 			  starting by the end, {e inverse}
 			  of de Bruijn indice *)
 
-type id_key = inv_rel_key tableKey
+val eq_table_key : ('a -> 'a -> bool) -> 'a tableKey -> 'a tableKey -> bool
 
+type id_key = constant tableKey
+
+val eq_constant_key : constant -> constant -> bool
 val eq_id_key : id_key -> id_key -> bool
 
 (*equalities on constant and inductive 

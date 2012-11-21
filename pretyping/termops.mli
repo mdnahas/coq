@@ -14,15 +14,6 @@ open Sign
 open Environ
 open Locus
 
-(** Universes *)
-val new_univ_level : unit -> Univ.universe_level
-val new_univ : unit -> Univ.universe
-val new_sort_in_family : sorts_family -> sorts
-val new_Type : unit -> types
-val new_Type_sort : unit -> sorts
-val refresh_universes : types -> types
-val refresh_universes_strict : types -> types
-
 (** printers *)
 val print_sort : sorts -> std_ppcmds
 val pr_sort_family : sorts_family -> std_ppcmds

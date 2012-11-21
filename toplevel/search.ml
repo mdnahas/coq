@@ -43,7 +43,7 @@ module SearchBlacklist =
 
 let print_constructors indsp fn env nconstr =
   for i = 1 to nconstr do
-    fn (ConstructRef (indsp,i)) env (Inductiveops.type_of_constructor env (indsp,i))
+    fn (ConstructRef (indsp,i)) env (Inductiveops.type_of_constructor env ((indsp,i),[]))
   done
 
 let rec head_const c = match kind_of_term c with
@@ -62,15 +62,15 @@ let gen_crible refopt (fn : global_reference -> env -> constr -> unit) =
 	(try
 	   let (id,_,typ) = Global.lookup_named (basename sp) in
            if refopt = None
-	     || head_const typ = constr_of_global (Option.get refopt)
+	     || head_const typ = Universes.constr_of_global (Option.get refopt)
 	   then
 	     fn (VarRef id) env typ
 	 with Not_found -> (* we are in a section *) ())
     | "CONSTANT" ->
 	let cst = Global.constant_of_delta_kn kn in
-	let typ = Typeops.type_of_constant env cst in
+	let typ = Typeops.type_of_constant_in env (cst,[]) (*FIXME*)in
         if refopt = None
-	  || head_const typ = constr_of_global (Option.get refopt)
+	  || head_const typ = Universes.constr_of_global (Option.get refopt)
 	then
 	  fn (ConstRef cst) env typ
     | "INDUCTIVE" ->
@@ -185,7 +185,7 @@ let raw_search search_function extra_filter display_function pat =
   let env = Global.env() in
   List.iter
     (fun (gr,_,_) ->
-       let typ = Global.type_of_global gr in
+       let typ = Global.type_of_global_unsafe gr in
        if extra_filter gr env typ then
 	 display_function gr env typ
     ) (search_function pat)

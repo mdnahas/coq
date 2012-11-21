@@ -10,7 +10,7 @@ Require Import Le Gt Minus Bool.
 Require Setoid.
 
 Set Implicit Arguments.
-
+Set Universe Polymorphism.
 
 (******************************************************************)
 (** * Basics: definition of polymorphic lists and some operations *)
@@ -131,7 +131,7 @@ Section Facts.
   subst a; auto.
   exists [], l; auto.
   destruct (IHl H) as (l1,(l2,H0)).
-  exists (a::l1), l2; simpl; f_equal; auto.
+  exists (a::l1), l2; simpl. apply f_equal. auto.
   Qed.
 
   (** Inversion *)
@@ -174,7 +174,7 @@ Section Facts.
   Qed.
 
   Theorem app_nil_r : forall l:list A, l ++ [] = l.
-  Proof.
+  Proof. 
     induction l; simpl; f_equal; auto.
   Qed.
 
@@ -655,7 +655,7 @@ Section Elts.
 
 End Elts.
 
-
+Unset Universe Polymorphism.
 
 (*******************************)
 (** * Manipulating whole lists *)

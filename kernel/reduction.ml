@@ -27,8 +27,14 @@ open Esubst
 let unfold_reference ((ids, csts), infos) k =
   match k with
     | VarKey id when not (Idpred.mem id ids) -> None
-    | ConstKey cst when not (Cpred.mem cst csts) -> None
+    | ConstKey (cst,_) when not (Cpred.mem cst csts) -> None
     | _ -> unfold_reference infos k
+
+let conv_key k =
+  match k with
+  | VarKey id -> VarKey id
+  | ConstKey (cst,_) -> ConstKey cst
+  | RelKey n -> RelKey n
 
 let rec is_empty_stack = function
     [] -> true
@@ -182,6 +188,7 @@ type conv_pb =
   | CUMUL
 
 let is_cumul = function CUMUL -> true | CONV -> false
+let is_pos = function Pos -> true | Null -> false
 
 let sort_cmp pb s0 s1 cuniv =
   match (s0,s1) with
@@ -192,9 +199,11 @@ let sort_cmp pb s0 s1 cuniv =
       end
     | (Prop c1, Prop c2) ->
         if c1 == c2 then cuniv else raise NotConvertible
-    | (Prop c1, Type u) when is_cumul pb -> assert (is_univ_variable u); cuniv
+    | (Prop c1, Type u) when is_cumul pb -> 
+      enforce_leq (if is_pos c1 then type0_univ else type0m_univ) u cuniv
+    | (Type u, Prop c) when is_cumul pb -> 
+      enforce_leq u (if is_pos c then type0_univ else type0m_univ) cuniv
     | (Type u1, Type u2) ->
-	assert (is_univ_variable u2);
 	(match pb with
            | CONV -> enforce_eq u1 u2 cuniv
 	   | CUMUL -> enforce_leq u1 u2 cuniv)
@@ -297,7 +306,7 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
         with NotConvertible ->
           (* else the oracle tells which constant is to be expanded *)
           let (app1,app2) =
-            if Conv_oracle.oracle_order l2r fl1 fl2 then
+            if Conv_oracle.oracle_order l2r (conv_key fl1) (conv_key fl2) then
               match unfold_reference infos fl1 with
                 | Some def1 -> ((lft1, whd_stack (snd infos) def1 v1), appr2)
                 | None ->
@@ -359,13 +368,13 @@ and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
 
     (* Inductive types:  MutInd MutConstruct Fix Cofix *)
 
-    | (FInd ind1, FInd ind2) ->
+    | (FInd (ind1,u1), FInd (ind2,u2)) ->
         if eq_ind ind1 ind2
 	then
           convert_stacks l2r infos lft1 lft2 v1 v2 cuniv
         else raise NotConvertible
 
-    | (FConstruct (ind1,j1), FConstruct (ind2,j2)) ->
+    | (FConstruct ((ind1,j1),u1), FConstruct ((ind2,j2),u2)) ->
 	if Int.equal j1 j2 && eq_ind ind1 ind2
 	then
           convert_stacks l2r infos lft1 lft2 v1 v2 cuniv

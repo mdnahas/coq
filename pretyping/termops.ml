@@ -33,6 +33,10 @@ let pr_name = function
 
 let pr_con sp = str(string_of_con sp)
 
+let pr_puniverses p u = 
+  if u = [] then p 
+  else p ++ str"(*" ++ prlist_with_sep spc Univ.pr_uni_level u ++ str"*)"
+
 let rec pr_constr c = match kind_of_term c with
   | Rel n -> str "#"++int n
   | Meta n -> str "Meta(" ++ int n ++ str ")"
@@ -60,10 +64,10 @@ let rec pr_constr c = match kind_of_term c with
   | Evar (e,l) -> hov 1
       (str"Evar#" ++ int e ++ str"{" ++
        prlist_with_sep spc pr_constr (Array.to_list l) ++str"}")
-  | Const c -> str"Cst(" ++ pr_con c ++ str")"
-  | Ind (sp,i) -> str"Ind(" ++ pr_mind sp ++ str"," ++ int i ++ str")"
-  | Construct ((sp,i),j) ->
-      str"Constr(" ++ pr_mind sp ++ str"," ++ int i ++ str"," ++ int j ++ str")"
+  | Const (c,u) -> str"Cst(" ++ pr_puniverses (pr_con c) u ++ str")"
+  | Ind ((sp,i),u) -> str"Ind(" ++ pr_puniverses (pr_mind sp ++ str"," ++ int i) u ++ str")"
+  | Construct (((sp,i),j),u) ->
+      str"Constr(" ++ pr_puniverses (pr_mind sp ++ str"," ++ int i ++ str"," ++ int j) u ++ str")"
   | Case (ci,p,c,bl) -> v 0
       (hv 0 (str"<"++pr_constr p++str">"++ cut() ++ str"Case " ++
              pr_constr c ++ str"of") ++ cut() ++
@@ -144,38 +148,6 @@ let print_env env =
 (*let current_module = ref empty_dirpath
 
 let set_module m = current_module := m*)
-
-let new_univ_level =
-  let univ_gen = ref 0 in
-  (fun sp ->
-    incr univ_gen;
-    Univ.make_universe_level (Lib.library_dp(),!univ_gen))
-
-let new_univ () = Univ.make_universe (new_univ_level ())
-let new_Type () = mkType (new_univ ())
-let new_Type_sort () = Type (new_univ ())
-
-(* This refreshes universes in types; works only for inferred types (i.e. for
-   types of the form (x1:A1)...(xn:An)B with B a sort or an atom in
-   head normal form) *)
-let refresh_universes_gen strict t =
-  let modified = ref false in
-  let rec refresh t = match kind_of_term t with
-    | Sort (Type u) when strict or u <> Univ.type0m_univ ->
-	modified := true; new_Type ()
-    | Prod (na,u,v) -> mkProd (na,u,refresh v)
-    | _ -> t in
-  let t' = refresh t in
-  if !modified then t' else t
-
-let refresh_universes = refresh_universes_gen false
-let refresh_universes_strict = refresh_universes_gen true
-
-let new_sort_in_family = function
-  | InProp -> prop_sort
-  | InSet -> set_sort
-  | InType -> Type (new_univ ())
-
 
 
 (* [Rel (n+m);...;Rel(n+1)] *)
@@ -516,7 +488,7 @@ let occur_meta_or_existential c =
 
 let occur_const s c =
   let rec occur_rec c = match kind_of_term c with
-    | Const sp when sp=s -> raise Occur
+    | Const (sp,_) when sp=s -> raise Occur
     | _ -> iter_constr occur_rec c
   in
   try occur_rec c; false with Occur -> true
@@ -882,10 +854,7 @@ let isGlobalRef c =
   | Const _ | Ind _ | Construct _ | Var _ -> true
   | _ -> false
 
-let has_polymorphic_type c =
-  match (Global.lookup_constant c).Declarations.const_type with
-  | Declarations.PolymorphicArity _ -> true
-  | _ -> false
+let has_polymorphic_type c = (Global.lookup_constant c).Declarations.const_polymorphic
 
 let base_sort_cmp pb s0 s1 =
   match (s0,s1) with

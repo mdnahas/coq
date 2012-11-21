@@ -30,11 +30,11 @@ let string_of_global r =
 let destructurate t =
   let c, args = Term.decompose_app t in
   match Term.kind_of_term c, args with
-    | Term.Const sp, args ->
+    | Term.Const (sp,_), args ->
 	Kapp (string_of_global (Globnames.ConstRef sp), args)
-    | Term.Construct csp , args ->
+    | Term.Construct (csp,_) , args ->
 	Kapp (string_of_global (Globnames.ConstructRef csp), args)
-    | Term.Ind isp, args ->
+    | Term.Ind (isp,_), args ->
 	Kapp (string_of_global (Globnames.IndRef isp), args)
     | Term.Var id,[] -> Kvar(Names.string_of_id id)
     | Term.Prod (Names.Anonymous,typ,body), [] -> Kimp(typ,body)
@@ -48,9 +48,9 @@ let dest_const_apply t =
   let f,args = Term.decompose_app t in
   let ref =
   match Term.kind_of_term f with
-    | Term.Const sp      -> Globnames.ConstRef sp
-    | Term.Construct csp -> Globnames.ConstructRef csp
-    | Term.Ind isp       -> Globnames.IndRef isp
+    | Term.Const (sp,_)      -> Globnames.ConstRef sp
+    | Term.Construct (csp,_) -> Globnames.ConstructRef csp
+    | Term.Ind (isp,_)       -> Globnames.IndRef isp
     | _ -> raise Destruct
   in  Nametab.basename_of_global ref, args
 
@@ -210,15 +210,14 @@ let rec mk_nat = function
 
 (* Lists *)
 
-let coq_cons =  lazy (constant "cons")
-let coq_nil =  lazy (constant "nil")
+let coq_cons typ = Term.mkApp (constant "cons", [|typ|])
+let coq_nil typ =  Term.mkApp (constant "nil", [|typ|])
 
 let mk_list typ l =
   let rec loop = function
-    | [] ->
-	Term.mkApp (Lazy.force coq_nil, [|typ|])
+    | [] -> coq_nil typ
     | (step :: l) ->
-	Term.mkApp (Lazy.force coq_cons, [|typ; step; loop l |]) in
+	Term.mkApp (coq_cons typ, [| step; loop l |]) in
   loop l
 
 let mk_plist l = mk_list Term.mkProp l

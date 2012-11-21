@@ -14,7 +14,8 @@ open Univ
 
 (** {6 Cooking the constants. } *)
 
-type work_list = identifier array Cmap.t * identifier array Mindmap.t
+type work_list = (universe_list * identifier array) Cmap.t * 
+  (universe_list * identifier array) Mindmap.t
 
 type recipe = {
   d_from : constant_body;
@@ -23,7 +24,7 @@ type recipe = {
 
 val cook_constant :
   env -> recipe ->
-    constant_def * constant_type * constraints * Sign.section_context
+    constant_def * constant_type * bool * universe_context * Sign.section_context
 
 
 (** {6 Utility functions used in module [Discharge]. } *)

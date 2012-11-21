@@ -130,7 +130,8 @@ let cache_constant ((sp,kn),(cdt,dhyps,kind)) =
   let kn' = Global.add_constant dir id cdt in
   assert (kn' = constant_of_kn kn);
   Nametab.push (Nametab.Until 1) sp (ConstRef (constant_of_kn kn));
-  add_section_constant kn' (Global.lookup_constant kn').const_hyps;
+  let cst = Global.lookup_constant kn' in
+  add_section_constant cst.const_polymorphic kn' cst.const_hyps;
   Dischargedhypsmap.set_discharged_hyps sp dhyps;
   add_constant_kind (constant_of_kn kn) kind;
   !cache_hook sp
@@ -181,12 +182,14 @@ let declare_constant ?(internal = UserVerbose) id (cd,kind) =
   kn
 
 let declare_definition ?(internal=UserVerbose) ?(opaque=false) ?(kind=Decl_kinds.Definition)
-  id ?types body =
+  ?(poly=false) id ?types (body,ctx) =
   let cb = 
     { Entries.const_entry_body = body;
       const_entry_type = types;
       const_entry_opaque = opaque;
-      const_entry_secctx = None }
+      const_entry_secctx = None; (*FIXME*)
+      const_entry_polymorphic = poly;
+      const_entry_universes = Univ.context_of_universe_context_set ctx }
   in
     declare_constant ~internal id
       (Entries.DefinitionEntry cb, Decl_kinds.IsDefinition kind) 
@@ -236,7 +239,8 @@ let cache_inductive ((sp,kn),(dhyps,mie)) =
   let _,dir,_ = repr_kn kn in
   let kn' = Global.add_mind dir id mie in
   assert (kn'= mind_of_kn kn);
-  add_section_kn kn' (Global.lookup_mind kn').mind_hyps;
+  let mind = Global.lookup_mind kn' in
+  add_section_kn mind.mind_polymorphic kn' mind.mind_hyps;
   Dischargedhypsmap.set_discharged_hyps sp dhyps;
   List.iter (fun (sp, ref) -> Nametab.push (Nametab.Until 1) sp ref) names;
   List.iter (fun (sp,_) -> !cache_hook sp) (inductive_names sp kn mie)
@@ -262,7 +266,9 @@ let dummy_inductive_entry (_,m) = ([],{
   mind_entry_params = [];
   mind_entry_record = false;
   mind_entry_finite = true;
-  mind_entry_inds = List.map dummy_one_inductive_entry m.mind_entry_inds })
+  mind_entry_inds = List.map dummy_one_inductive_entry m.mind_entry_inds;
+  mind_entry_polymorphic = false;
+  mind_entry_universes = Univ.empty_universe_context })
 
 type inductive_obj = Dischargedhypsmap.discharged_hyps * mutual_inductive_entry
 

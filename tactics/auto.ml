@@ -561,7 +561,7 @@ let make_extern pri pat tacast =
      code = Extern tacast })
 
 let make_trivial env sigma ?(name=PathAny) r =
-  let c = constr_of_global r in
+  let c = Universes.constr_of_global r in
   let t = hnf_constr env sigma (type_of env sigma c) in
   let hd = head_of_constr_reference (fst (head_constr t)) in
   let ce = mk_clenv_from dummy_goal (c,t) in
@@ -719,7 +719,7 @@ let add_resolves env sigma clist local dbnames =
 	    (local,dbname, AddHints
      	      (List.flatten (List.map (fun (x, hnf, path, gr) ->
 		make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path 
-		  (constr_of_global gr)) clist)))))
+		  (Universes.constr_of_global gr)) clist)))))
     dbnames
 
 let add_unfolds l local dbnames =
@@ -822,7 +822,7 @@ let interp_hints =
     let evd,c = Constrintern.interp_open_constr Evd.empty (Global.env()) c in
     let c = prepare_hint (Global.env()) (evd,c) in
     Evarutil.check_evars (Global.env()) Evd.empty evd c;
-    c in
+    c, Evd.universe_context_set evd in
   let fr r =
     let gr = global_with_alias r in
     let r' = evaluable_of_global_reference (Global.env()) gr in
@@ -859,7 +859,7 @@ let interp_hints =
 	Dumpglob.dump_reference (fst (qualid_of_reference qid)) "<>" (string_of_reference qid) "ind";
         List.tabulate (fun i -> let c = (ind,i+1) in
 				let gr = ConstructRef c in
-			 None, true, PathHints [gr], gr)
+				  None, true, PathHints [gr], gr)
 	  (nconstructors ind) in
 	HintsResolveEntry (List.flatten (List.map constr_hints_of_ind lqid))
   | HintsExtern (pri, patcom, tacexp) ->
@@ -1051,8 +1051,8 @@ let unify_resolve_gen = function
 let expand_constructor_hints env lems =
   List.map_append (fun (sigma,lem) ->
     match kind_of_term lem with
-    | Ind ind ->
-	List.tabulate (fun i -> mkConstruct (ind,i+1)) (nconstructors ind)
+    | Ind (ind,u) ->
+	List.tabulate (fun i -> mkConstructU ((ind,i+1),u)) (nconstructors ind)
     | _ ->
 	[prepare_hint env (sigma,lem)]) lems
 

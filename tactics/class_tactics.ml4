@@ -232,8 +232,8 @@ let make_resolve_hyp env sigma st flags only_classes pri (id, _, cty) =
   let rec iscl env ty = 
     let ctx, ar = decompose_prod_assum ty in
       match kind_of_term (fst (decompose_app ar)) with
-      | Const c -> is_class (ConstRef c)
-      | Ind i -> is_class (IndRef i)
+      | Const (c,u) -> is_class (ConstRef c)
+      | Ind (i,u) -> is_class (IndRef i)
       | _ -> 
 	  let env' = Environ.push_rel_context ctx env in
 	  let ty' = whd_betadeltaiota env' ar in
@@ -250,7 +250,7 @@ let make_resolve_hyp env sigma st flags only_classes pri (id, _, cty) =
 	  let hints = build_subclasses ~check:false env sigma (VarRef id) None in
 	    (List.map_append
 	       (fun (pri, c) -> make_resolves env sigma 
-		  (true,false,Flags.is_verbose()) pri (constr_of_global c))
+		  (true,false,Flags.is_verbose()) pri (Universes.constr_of_global c))
 	       hints)
 	else []
       in
