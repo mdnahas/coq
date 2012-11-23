@@ -9,19 +9,22 @@
 (** Universes. *)
 
 type universe_level
-type universe
 
 module UniverseLSet : Set.S with type elt = universe_level
 module UniverseLMap : Map.S with type key = universe_level
 
-type universe_set = UniverseLSet.t
-val empty_universe_set : universe_set
-
 type universe_list = universe_level list
 val empty_universe_list : universe_list
 
+type universe_set = UniverseLSet.t
+val empty_universe_set : universe_set
+
 type 'a puniverses = 'a * universe_list
 val out_punivs : 'a puniverses -> 'a
+
+type universe = 
+  | Atom of universe_level
+  | Max of universe_list * universe_list
 
 (** The universes hierarchy: Type 0- = Prop <= Type 0 = Set <= Type 1 <= ... 
    Typing of universes: Type 0-, Type 0 : Type 1; Type i : Type (i+1) if i>0 *)
