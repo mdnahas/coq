@@ -215,48 +215,6 @@ let choose_canonical ctx flexible s =
 	  let canon = UniverseLSet.choose s in
 	    canon, (global, rigid, UniverseLSet.remove canon flexible)
 
-
-let smartmap_universe_list f x =
-  match x with
-  | Atom _ -> x
-  | Max (gel, gtl) ->
-    let gel' = f Le gel and gtl' = f Lt gtl in
-      if gel == gel' && gtl == gtl' then x
-      else 
-	(match gel', gtl' with
-	| [x], [] -> Atom x
-	| [], [] -> raise (Invalid_argument "smartmap_universe_list")
-	| _, _ -> Max (gel', gtl'))
-
-let smartmap_pair f g x =
-  let (a, b) = x in
-  let a' = f a and b' = g b in
-    if a' == a && b' == b then x
-    else (a', b')
-
-let has_constraint csts x d y =
-  Constraint.exists (fun (l,d',r) ->
-    eq_levels x l && d = d' && eq_levels y r)
-    csts
-
-let id x = x
-
-let simplify_max_expressions csts subst = 
-  let remove_higher d l =
-    let rec aux found acc = function
-      | [] -> if found then acc else l
-      | ge :: ges -> 
-      if List.exists (fun ge' -> has_constraint csts ge d ge') acc 
-	|| List.exists (fun ge' -> has_constraint csts ge d ge') ges then
-	aux true acc ges
-      else aux found (ge :: acc) ges
-    in aux false [] l
-  in
-  let simplify_max x =
-    smartmap_universe_list remove_higher x
-  in
-    CList.smartmap (smartmap_pair id simplify_max) subst
-
 let smartmap_universe_list f x =
   match x with
   | Atom _ -> x

@@ -25,6 +25,7 @@ open Pp
 let relevant_equality = ref false
 
 let enforce_relevant_equality () = relevant_equality := true
+let is_relevant_equality () = !relevant_equality
 
 (* Same as noccur_between but may perform reductions.
    Could be refined more...  *)
@@ -196,8 +197,11 @@ let infer_constructor_packet env_ar_par ctx params lc =
 let cumulate_arity_large_levels env sign =
   fst (List.fold_right
     (fun (_,_,t as d) (lev,env) ->
-      let u = univ_of_sort (fst (infer_type env t)).utj_type in
-      ((if is_small_univ u then lev else sup u lev), push_rel d env))
+      let u, s = dest_prod_assum env t in
+	match kind_of_term s with
+	| Sort s -> let u = univ_of_sort s in
+		      ((if is_small_univ u then lev else sup u lev), push_rel d env)
+	| _ -> lev, push_rel d env)
     sign (type0m_univ,env))
 
 (* Type-check an inductive definition. Does not check positivity
@@ -215,7 +219,9 @@ let typecheck_inductive env ctx mie =
   let paramlev = 
     (* The level of the inductive includes levels of parameters if 
        in relevant_equality mode *)
-    type0m_univ 
+    if !relevant_equality 
+    then cumulate_arity_large_levels env' params 
+    else type0m_univ 
   in
   (* We first type arity of each inductive definition *)
   (* This allows to build the environment of arities and to share *)
