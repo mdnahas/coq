@@ -20,12 +20,12 @@ open Univ
 let new_univ_level =
   let n = ref 0 in 
     fun dp -> incr n; 
-      Univ.make_universe_level (dp, !n)
+      Univ.UniverseLevel.make dp !n
 
 let fresh_level () = new_univ_level (Global.current_dirpath ())
 
 (* TODO: remove *)
-let new_univ dp = Univ.make_universe (new_univ_level dp)
+let new_univ dp = Univ.Universe.make (new_univ_level dp)
 let new_Type dp = mkType (new_univ dp)
 let new_Type_sort dp = Type (new_univ dp)
 
@@ -121,7 +121,7 @@ let fresh_sort_in_family env = function
   | InSet -> set_sort, Univ.empty_universe_context_set
   | InType -> 
     let u = fresh_level () in
-      Type (Univ.make_universe u), Univ.singleton_universe_context_set u
+      Type (Univ.Universe.make u), Univ.singleton_universe_context_set u
 
 let new_sort_in_family sf =
   fst (fresh_sort_in_family (Global.env ()) sf)
@@ -131,7 +131,7 @@ let extend_context (a, ctx) (ctx') =
 
 let new_global_univ () =
   let u = fresh_level () in
-    (Univ.make_universe u, Univ.singleton_universe_context_set u)
+    (Univ.Universe.make u, Univ.singleton_universe_context_set u)
 
 (** Simplification *)
 
@@ -139,8 +139,8 @@ module LevelUnionFind = Unionfind.Make (Univ.UniverseLSet) (Univ.UniverseLMap)
 
 let remove_trivial_constraints cst =
   Constraint.fold (fun (l,d,r as cstr) nontriv ->
-    if d <> Lt && eq_levels l r then nontriv
-    else if d = Le && is_type0_univ (Univ.make_universe l) then nontriv
+    if d != Lt && eq_levels l r then nontriv
+    else if d == Le && is_type0m_univ (Univ.Universe.make l) then nontriv
     else Constraint.add cstr nontriv)
     cst empty_constraint
 
@@ -167,8 +167,8 @@ let instantiate_univ_variables ucstrsl ucstrsr u (subst, cstrs) =
     try
       let r = UniverseLMap.find u ucstrsr in
       let lbound = List.fold_left (fun lbound (d, l) -> 
-      if d = Le (* l <= ?u *) then (sup (make_universe l) lbound)
-      else (* l < ?u *) (assert (d = Lt); (sup (super (make_universe l)) lbound)))
+      if d = Le (* l <= ?u *) then (sup (Universe.make l) lbound)
+      else (* l < ?u *) (assert (d = Lt); (sup (super (Universe.make l)) lbound)))
 	type0m_univ r
       in Some lbound
     with Not_found ->
@@ -181,13 +181,13 @@ let instantiate_univ_variables ucstrsl ucstrsr u (subst, cstrs) =
       let l = UniverseLMap.find u ucstrsl in
       let lbound =
 	match lbound with
-	| None -> make_universe u (** No lower bounds but some upper bounds, u has to stay *)
+	| None -> Universe.make u (** No lower bounds but some upper bounds, u has to stay *)
 	| Some lbound -> lbound
       in
       let cstrs =
 	List.fold_left (fun cstr (d,r) -> 
-	  if d = Le (* ?u <= r *) then enforce_leq lbound (make_universe r) cstr
-	  else (* ?u < r *) enforce_leq (super lbound) (make_universe r) cstr)
+	  if d = Le (* ?u <= r *) then enforce_leq lbound (Universe.make r) cstr
+	  else (* ?u < r *) enforce_leq (super lbound) (Universe.make r) cstr)
 	cstrs l
       in Some lbound, cstrs
     with Not_found -> lbound, cstrs
@@ -214,6 +214,8 @@ let choose_canonical ctx flexible s =
 		 class, choose an arbitrary one. *)
 	  let canon = UniverseLSet.choose s in
 	    canon, (global, rigid, UniverseLSet.remove canon flexible)
+
+open Universe
 
 let smartmap_universe_list f x =
   match x with
@@ -316,8 +318,8 @@ let normalize_context_set (ctx, csts) us algs =
     in 
     (** Normalize the substitution w.r.t. itself so we get only
 	fully-substituted, normalized universes as the range of the substitution.
-	We don't need to do it for the initial substitution which is canonical
-	already. *)
+	We need to do it for the initial substitution which is canonical
+	already only at the end. *)
     let rec fixpoint noneqs subst ussubst = 
       let (subst', ussubst') = aux subst ussubst in
       let ussubst', noneqs = 
@@ -337,6 +339,14 @@ let normalize_context_set (ctx, csts) us algs =
   let constraints = remove_trivial_constraints 
     (Constraint.union eqs (subst_univs_constraints subst noneqs))
   in
+  (* We remove constraints that are redundant because of the algebraic
+     substitution. *)
+  let constraints = 
+    Constraint.fold (fun (l,d,r as cstr) csts -> 
+      if List.mem_assoc l ussubst || List.mem_assoc r ussubst then csts
+      else Constraint.add cstr csts)
+    constraints Constraint.empty
+  in
   let usalg, usnonalg = 
     List.partition (fun (u, _) -> UniverseLSet.mem u algs) ussubst
   in
@@ -344,13 +354,14 @@ let normalize_context_set (ctx, csts) us algs =
     usalg @
     CList.map_filter (fun (u, v) ->
       if eq_levels u v then None
-      else Some (u, make_universe v))
+      else Some (u, Universe.make (subst_univs_level subst v)))
       subst
   in
   let ctx' = List.fold_left (fun ctx' (u, _) -> UniverseLSet.remove u ctx') ctx subst in
   let constraints' =
     (** Residual constraints that can't be normalized further. *)
-    List.fold_left (fun csts (u, v) -> enforce_leq v (make_universe u) csts)
+    List.fold_left (fun csts (u, v) -> 
+      enforce_leq v (Universe.make u) csts)
       constraints usnonalg
   in
     (subst, (ctx', constraints'))

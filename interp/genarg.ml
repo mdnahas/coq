@@ -6,6 +6,7 @@
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
+open Util
 open Glob_term
 open Constrexpr
 open Misctypes
@@ -35,6 +36,32 @@ type argument_type =
   | OptArgType of argument_type
   | PairArgType of argument_type * argument_type
   | ExtraArgType of string
+
+let rec argument_type_eq arg1 arg2 = match arg1, arg2 with
+| BoolArgType, BoolArgType -> true
+| IntArgType, IntArgType -> true
+| IntOrVarArgType, IntOrVarArgType -> true
+| StringArgType, StringArgType -> true
+| PreIdentArgType, PreIdentArgType -> true
+| IntroPatternArgType, IntroPatternArgType -> true
+| IdentArgType b1, IdentArgType b2 -> (b1 : bool) == b2
+| VarArgType, VarArgType -> true
+| RefArgType, RefArgType -> true
+| SortArgType, SortArgType -> true
+| ConstrArgType, ConstrArgType -> true
+| ConstrMayEvalArgType, ConstrMayEvalArgType -> true
+| QuantHypArgType, QuantHypArgType -> true
+| OpenConstrArgType b1, OpenConstrArgType b2 -> (b1 : bool) == b2
+| ConstrWithBindingsArgType, ConstrWithBindingsArgType -> true
+| BindingsArgType, BindingsArgType -> true
+| RedExprArgType, RedExprArgType -> true
+| List0ArgType arg1, List0ArgType arg2 -> argument_type_eq arg1 arg2
+| List1ArgType arg1, List1ArgType arg2 -> argument_type_eq arg1 arg2
+| OptArgType arg1, OptArgType arg2 -> argument_type_eq arg1 arg2
+| PairArgType (arg1l, arg1r), PairArgType (arg2l, arg2r) ->
+  argument_type_eq arg1l arg2l && argument_type_eq arg1r arg2r
+| ExtraArgType s1, ExtraArgType s2 -> CString.equal s1 s2
+| _ -> false
 
 let loc_of_or_by_notation f = function
   | AN c -> f c
@@ -147,7 +174,7 @@ let wit_opt t = OptArgType t
 let wit_pair t1 t2 = PairArgType (t1,t2)
 
 let in_gen t o = (t,Obj.repr o)
-let out_gen t (t',o) = if t = t' then Obj.magic o else failwith "out_gen"
+let out_gen t (t',o) = if argument_type_eq t t' then Obj.magic o else failwith "out_gen"
 let genarg_tag (s,_) = s
 
 let fold_list0 f = function

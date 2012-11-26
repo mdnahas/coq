@@ -142,7 +142,11 @@ let rec is_class_type evd c =
   match kind_of_term c with
   | Prod (_, _, t) -> is_class_type evd t
   | Evar (e, _) when is_defined evd e -> is_class_type evd (Evarutil.nf_evar evd c)
-  | _ -> class_of_constr c <> None
+  | _ ->
+    begin match class_of_constr c with
+    | Some _ -> true
+    | None -> false
+    end
 
 let is_class_evar evd evi =
   is_class_type evd evi.Evd.evar_concl
@@ -327,7 +331,7 @@ let discharge_instance (_, (action, inst)) =
       is_impl = Lib.discharge_global inst.is_impl })
     
 
-let is_local i = i.is_global = -1
+let is_local i = Int.equal i.is_global (-1)
 
 let add_instance check inst =
   add_instance_hint inst.is_impl (is_local inst) inst.is_pri;
@@ -336,7 +340,10 @@ let add_instance check inst =
        (Global.env ()) Evd.empty inst.is_impl inst.is_pri)
 
 let rebuild_instance (action, inst) =
-  if action = AddInstance then add_instance true inst;
+  let () = match action with
+  | AddInstance -> add_instance true inst
+  | _ -> ()
+  in
   (action, inst)
 
 let classify_instance (action, inst) =
@@ -417,7 +424,11 @@ let add_inductive_class ind =
  *)
 
 let instance_constructor cl args =
-  let lenpars = List.length (List.filter (fun (na, b, t) -> b = None) (snd cl.cl_context)) in
+  let filter (_, b, _) = match b with
+  | None -> true
+  | Some _ -> false
+  in
+  let lenpars = List.length (List.filter filter (snd cl.cl_context)) in
   let pars = fst (List.chop lenpars args) in
     match cl.cl_impl with
       | IndRef ind -> 
@@ -426,7 +437,10 @@ let instance_constructor cl args =
 	 applistc (mkIndU ind) pars), ctx
       | ConstRef cst -> 
       let cst, ctx = Universes.fresh_constant_instance (Global.env ()) cst in
-      let term = if args = [] then None else Some (List.last args) in
+      let term = match args with
+	| [] -> None
+	| _ -> Some (List.last args)
+      in
 	(term, applistc (mkConstU cst) pars), ctx
       | _ -> assert false
 
@@ -446,7 +460,7 @@ let instances r =
   let cl = class_info r in instances_of cl    
       
 let is_class gr = 
-  Gmap.fold (fun k v acc -> acc || v.cl_impl = gr) !classes false
+  Gmap.fold (fun k v acc -> acc || eq_gr v.cl_impl gr) !classes false
 
 let is_instance = function
   | ConstRef c ->
@@ -461,7 +475,9 @@ let is_instance = function
       is_class (IndRef ind)
   | _ -> false
 
-let is_implicit_arg k = k <> Evar_kinds.GoalEvar
+let is_implicit_arg = function
+| Evar_kinds.GoalEvar -> false
+| _ -> true
   (* match k with *)
   (*     ImplicitArg (ref, (n, id), b) -> true *)
   (*   | InternalHole -> true *)
@@ -481,7 +497,7 @@ let resolvable = Store.field ()
 open Store.Field
 
 let is_resolvable evi =
-  assert (evi.evar_body = Evar_empty);
+  assert (match evi.evar_body with Evar_empty -> true | _ -> false);
   Option.default true (resolvable.get evi.evar_extra)
 
 let mark_resolvability_undef b evi =
@@ -489,7 +505,7 @@ let mark_resolvability_undef b evi =
   { evi with evar_extra = t }
 
 let mark_resolvability b evi =
-  assert (evi.evar_body = Evar_empty);
+  assert (match evi.evar_body with Evar_empty -> true | _ -> false);
   mark_resolvability_undef b evi
 
 let mark_unresolvable evi = mark_resolvability false evi

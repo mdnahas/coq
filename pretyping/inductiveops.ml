@@ -139,7 +139,7 @@ let constructor_nrealhyps (ind,j) =
 
 let get_full_arity_sign env (ind,u) =
   let (mib,mip) = Inductive.lookup_mind_specif env ind in
-  let subst = make_universe_subst u mib.mind_universes in
+  let subst = Inductive.make_inductive_subst mib u in
     Sign.subst_univs_context subst mip.mind_arity_ctxt
 
 let nconstructors ind =
@@ -148,13 +148,15 @@ let nconstructors ind =
 
 let mis_constructor_has_local_defs (indsp,j) =
   let (mib,mip) = Global.lookup_inductive indsp in
-  mip.mind_consnrealdecls.(j-1) + rel_context_length (mib.mind_params_ctxt)
-  <> recarg_length mip.mind_recargs j + mib.mind_nparams
+  let l1 = mip.mind_consnrealdecls.(j-1) + rel_context_length (mib.mind_params_ctxt) in
+  let l2 = recarg_length mip.mind_recargs j + mib.mind_nparams in
+  not (Int.equal l1 l2)
 
 let inductive_has_local_defs ind =
   let (mib,mip) = Global.lookup_inductive ind in
-  rel_context_length (mib.mind_params_ctxt) + mip.mind_nrealargs_ctxt
-  <> mib.mind_nparams + mip.mind_nrealargs
+  let l1 = rel_context_length (mib.mind_params_ctxt) + mip.mind_nrealargs_ctxt in
+  let l2 = mib.mind_nparams + mip.mind_nrealargs in
+  not (Int.equal l1 l2)
 
 (* Length of arity (w/o local defs) *)
 
@@ -259,7 +261,7 @@ let get_arity env ((ind,u),params) =
        parameters *)
     let parsign = mib.mind_params_ctxt in
     let nnonrecparams = mib.mind_nparams - mib.mind_nparams_rec in
-    if List.length params = rel_context_nhyps parsign - nnonrecparams then
+    if Int.equal (List.length params) (rel_context_nhyps parsign - nnonrecparams) then
       snd (List.chop nnonrecparams mib.mind_params_ctxt)
     else
       parsign in
@@ -380,7 +382,10 @@ let is_predicate_explicitly_dep env pred arsign =
           check whether the predicate is actually dependent or not
           would indeed be more natural! *)
 
-	  na <> Anonymous
+          begin match na with
+          | Anonymous -> false
+          | Name _ -> true
+          end
 
       | _ -> anomaly "Non eta-expanded dep-expanded \"match\" predicate"
   in
@@ -429,7 +434,7 @@ let arity_of_case_predicate env (ind,params) dep k =
    knowing the sort of the conclusion *)
 
 let type_of_inductive_knowing_conclusion env ((mib,mip),u) conclty =
-  let subst = make_universe_subst u mib.mind_universes in
+  let subst = Inductive.make_inductive_subst mib u in
     subst_univs_constr subst mip.mind_arity.mind_user_arity
 
 (***********************************************)

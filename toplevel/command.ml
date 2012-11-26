@@ -93,8 +93,10 @@ let interp_definition bl p red_option c ctypopt =
 	let nf = e_nf_evars_and_universes evdref in 
 	let body = nf (it_mkLambda_or_LetIn c ctx) in
 	let typ = nf (it_mkProd_or_LetIn ty ctx) in
+	let beq x1 x2 = if x1 then x2 else not x2 in
+        let impl_eq (x1, y1, z1) (x2, y2, z2) = beq x1 x2 && beq y1 y2 && beq z1 z2 in
 	(* Check that all implicit arguments inferable from the term is inferable from the type *)
-	if not (try List.for_all (fun (key,va) -> List.assoc key impsty = va) imps2 with Not_found -> false)
+	if not (try List.for_all (fun (key,va) -> impl_eq (List.assoc key impsty) va) imps2 with Not_found -> false)
 	then msg_warning (strbrk "Implicit arguments declaration relies on type." ++
 		     spc () ++ strbrk "The term declares more implicits than the type here.");
 	imps1@(Impargs.lift_implicits nb_args impsty),
@@ -117,7 +119,7 @@ let declare_global_definition ident ce local k imps =
   let kn = declare_constant ident (DefinitionEntry ce,IsDefinition k) in
   let gr = ConstRef kn in
     maybe_declare_manual_implicits false gr imps;
-    if local = Local && Flags.is_verbose() then
+    if local == Local && Flags.is_verbose() then
       msg_warning (pr_id ident ++ strbrk " is declared as a global definition");
     definition_message ident;
     Autoinstance.search_declaration (ConstRef kn);
@@ -173,7 +175,7 @@ let declare_assumption is_coe (local,p,kind) c imps impl nl (_,ident) =
           declare_variable ident
             (Lib.cwd(), SectionLocalAssum (c,impl), IsAssumption kind) in
         assumption_message ident;
-        if is_verbose () & Pfedit.refining () then
+        if is_verbose () && Pfedit.refining () then
           msg_warning (str"Variable" ++ spc () ++ pr_id ident ++
           strbrk " is not visible from current goals");
 	let r = VarRef ident in
@@ -185,7 +187,7 @@ let declare_assumption is_coe (local,p,kind) c imps impl nl (_,ident) =
 	let gr = ConstRef kn in
 	  maybe_declare_manual_implicits false gr imps;
         assumption_message ident;
-        if local=Local & Flags.is_verbose () then
+        if local == Local && Flags.is_verbose () then
           msg_warning (pr_id ident ++ strbrk " is declared as a parameter" ++
           strbrk " because it is at a global level");
 	Autoinstance.search_declaration (ConstRef kn);
@@ -234,11 +236,19 @@ let check_all_names_different indl =
   let ind_names = List.map (fun ind -> ind.ind_name) indl in
   let cstr_names = List.map_append (fun ind -> List.map fst ind.ind_lc) indl in
   let l = List.duplicates ind_names in
-  if l <> [] then raise (InductiveError (SameNamesTypes (List.hd l)));
+  let () = match l with
+  | [] -> ()
+  | t :: _ -> raise (InductiveError (SameNamesTypes t))
+  in
   let l = List.duplicates cstr_names in
-  if l <> [] then raise (InductiveError (SameNamesConstructors (List.hd l)));
+  let () = match l with
+  | [] -> ()
+  | c :: _ -> raise (InductiveError (SameNamesConstructors (List.hd l)))
+  in
   let l = List.intersect ind_names cstr_names in
-  if l <> [] then raise (InductiveError (SameNamesOverlap l))
+  match l with
+  | [] -> ()
+  | _ -> raise (InductiveError (SameNamesOverlap l))
 
 let mk_mltype_data evdref env assums arity indname =
   let is_ml_type = is_sort env !evdref arity in
@@ -318,7 +328,7 @@ let interp_mutual_inductive (paramsl,indl) notations poly finite =
   let indnames = List.map (fun ind -> ind.ind_name) indl in
 
   (* Names of parameters as arguments of the inductive type (defs removed) *)
-  let assums = List.filter(fun (_,b,_) -> b=None) ctx_params in
+  let assums = List.filter(fun (_,b,_) -> Option.is_empty b) ctx_params in
   let params = List.map (fun (na,_,_) -> out_name na) assums in
 
   (* Interpret the arities *)
@@ -330,7 +340,6 @@ let interp_mutual_inductive (paramsl,indl) notations poly finite =
     if Indtypes.is_relevant_equality () then params_level env0 ctx_params 
     else Univ.type0m_univ 
   in
-
   (* Compute interpretation metadatas *)
   let indimpls = List.map (fun (_, impls) -> userimpls @ 
     lift_implicits (rel_context_nhyps ctx_params) impls) arities in
@@ -387,16 +396,16 @@ let interp_mutual_inductive (paramsl,indl) notations poly finite =
 (* Very syntactical equality *)
 let eq_local_binder d1 d2 = match d1,d2 with
   | LocalRawAssum (nal1,k1,c1), LocalRawAssum (nal2,k2,c2) ->
-      List.length nal1 = List.length nal2 && k1 = k2 &&
-      List.for_all2 (fun (_,na1) (_,na2) -> na1 = na2) nal1 nal2 &&
+      Int.equal (List.length nal1) (List.length nal2) && binder_kind_eq k1 k2 &&
+      List.for_all2 (fun (_,na1) (_,na2) -> name_eq na1 na2) nal1 nal2 &&
       Constrextern.is_same_type c1 c2
   | LocalRawDef ((_,id1),c1), LocalRawDef ((_,id2),c2) ->
-      id1 = id2 && Constrextern.is_same_type c1 c2
+      name_eq id1 id2 && Constrextern.is_same_type c1 c2
   | _ ->
       false
 
 let eq_local_binders bl1 bl2 =
-  List.length bl1 = List.length bl2 && List.for_all2 eq_local_binder bl1 bl2
+  Int.equal (List.length bl1) (List.length bl2) && List.for_all2 eq_local_binder bl1 bl2
 
 let extract_coercions indl =
   let mkqid (_,((_,id),_)) = qualid_of_ident id in
@@ -497,7 +506,7 @@ let rec partial_order = function
 	    let res = List.remove_assoc y res in
 	    let res = List.map (function
 	      | (z, Inl t) ->
-		  if t = y then (z, Inl x) else (z, Inl t)
+		  if id_eq t y then (z, Inl x) else (z, Inl t)
 	      | (z, Inr zge) ->
 		  if List.mem y zge then
 		    (z, Inr (List.add_set x (List.remove y zge)))
@@ -518,7 +527,7 @@ let non_full_mutual_message x xge y yge isfix rest =
       string_of_id x^" depends on "^string_of_id y^" but not conversely"
     else
       string_of_id y^" and "^string_of_id x^" are not mutually dependent" in
-  let e = if rest <> [] then "e.g.: "^reason else reason in
+  let e = if List.is_empty rest then reason else "e.g.: "^reason in
   let k = if isfix then "fixpoint" else "cofixpoint" in
   let w =
     if isfix
@@ -531,7 +540,7 @@ let check_mutuality env isfix fixl =
   let names = List.map fst fixl in
   let preorder =
     List.map (fun (id,def) ->
-      (id, List.filter (fun id' -> id<>id' & occur_var env id' def) names))
+      (id, List.filter (fun id' -> not (id_eq id id') && occur_var env id' def) names))
       fixl in
   let po = partial_order preorder in
   match List.filter (function (_,Inr _) -> true | _ -> false) po with
@@ -772,7 +781,7 @@ let build_wellfounded (recname,n,bl,arityc,body) r measure notation =
 	in 
 	let c = Declare.declare_constant recname (DefinitionEntry ce, IsDefinition Definition) in
 	let gr = ConstRef c in
-	  if Impargs.is_implicit_args () || impls <> [] then
+	  if Impargs.is_implicit_args () || not (List.is_empty impls) then
 	    Impargs.declare_manual_implicits false gr [impls]
       in
       let typ = it_mkProd_or_LetIn top_arity binders in
@@ -780,7 +789,7 @@ let build_wellfounded (recname,n,bl,arityc,body) r measure notation =
     else 
       let typ = it_mkProd_or_LetIn top_arity binders_rel in
       let hook l gr = 
-	if Impargs.is_implicit_args () || impls <> [] then
+	if Impargs.is_implicit_args () || not (List.is_empty impls) then
 	  Impargs.declare_manual_implicits false gr [impls]
       in hook, recname, typ
   in
@@ -938,7 +947,7 @@ let collect_evars_of_term evd c ty =
       evars Evd.empty
       
 let do_program_recursive fixkind fixl ntns =
-  let isfix = fixkind <> Obligations.IsCoFixpoint in
+  let isfix = fixkind != Obligations.IsCoFixpoint in
   let (env, rec_sign, evd), fix, info = 
     interp_recursive isfix fixl ntns 
   in
@@ -993,7 +1002,7 @@ let do_program_fixpoint poly l =
 	build_wellfounded (id, n, bl, typ, out_def def)
 	  (Option.default (CRef (lt_ref,None)) r) m ntn
 	  
-    | _, _ when List.for_all (fun (n, ro) -> ro = CStructRec) g ->
+    | _, _ when List.for_all (fun (n, ro) -> ro == CStructRec) g ->
 	let fixl,ntns = extract_fixpoint_components true l in
 	let fixkind = Obligations.IsFixpoint g in
 	  do_program_recursive fixkind fixl ntns

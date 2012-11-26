@@ -235,7 +235,7 @@ let register_is_applied_rewrite_relation = (:=) is_applied_rewrite_relation
    eliminate lbeq on sort_of_gl. *)
 
 let find_elim hdcncl lft2rgt dep cls args gl =
-  let inccl = (cls = None) in
+  let inccl = Option.is_empty cls in
   if (is_global Coqlib.glob_eq hdcncl ||
       (is_global Coqlib.glob_jmeq hdcncl) &&
       pf_conv_x gl (List.nth args 0) (List.nth args 2)) && not dep
@@ -245,9 +245,10 @@ let find_elim hdcncl lft2rgt dep cls args gl =
       | Ind (ind_sp,u) -> 
 	let pr1 = 
 	  lookup_eliminator ind_sp (elimination_sort_of_clause cls gl) 
-	in 
-	if lft2rgt = Some (cls=None) 
-	then
+	in
+        begin match lft2rgt, cls with
+        | Some true, None
+        | Some false, Some _ ->
 	  let c1 = destConstRef pr1 in 
 	  let mp,dp,l = repr_con (constant_of_kn (canonical_con c1)) in 
 	  let l' = label_of_id (add_suffix (id_of_label l) "_r")  in 
@@ -260,7 +261,8 @@ let find_elim hdcncl lft2rgt dep cls args gl =
 	      let rwr_thm = string_of_label l' in 
 	      error ("Cannot find rewrite principle "^rwr_thm^".")
 	  end
-	else destConstRef pr1
+	| _ -> destConstRef pr1
+        end
       | _ -> 
 	  (* cannot occur since we checked that we are in presence of 
 	     Logic.eq or Jmeq just before *)
@@ -314,7 +316,7 @@ let rewrite_side_tac tac sidetac = side_tac tac (Option.map fst sidetac)
 
 let general_rewrite_ebindings_clause cls lft2rgt occs frzevars dep_proof_ok ?tac
     ((c,l) : constr with_bindings) with_evars gl =
-  if occs <> AllOccurrences then (
+  if occs != AllOccurrences then (
     rewrite_side_tac (!general_rewrite_clause cls lft2rgt occs (c,l) ~new_goals:[]) tac gl)
   else
     let env = pf_env gl in
@@ -380,7 +382,7 @@ let general_multi_rewrite l2r with_evars ?tac c cl =
 	      (general_rewrite_ebindings_in l2r (occs_of occs) false true ?tac id c with_evars)
 	      (do_hyps l)
 	in
-	if cl.concl_occs = NoOccurrences then do_hyps l else
+	if cl.concl_occs == NoOccurrences then do_hyps l else
 	  tclTHENFIRST
 	   (general_rewrite_ebindings l2r (occs_of cl.concl_occs) false true ?tac c with_evars)
 	   (do_hyps l)
@@ -401,7 +403,7 @@ let general_multi_rewrite l2r with_evars ?tac c cl =
 	      Idset.fold (fun id l -> List.remove id l) ids_in_c (pf_ids_of_hyps gl)
 	  in do_hyps_atleastonce ids gl
 	in
-	if cl.concl_occs = NoOccurrences then do_hyps else
+	if cl.concl_occs == NoOccurrences then do_hyps else
 	  tclIFTHENTRYELSEMUST
 	   (general_rewrite_ebindings l2r (occs_of cl.concl_occs) false true ?tac c with_evars)
 	   do_hyps
@@ -531,9 +533,8 @@ let find_positions env sigma t1 t2 =
     let hd1,args1 = whd_betadeltaiota_stack env sigma t1 in
     let hd2,args2 = whd_betadeltaiota_stack env sigma t2 in
     match (kind_of_term hd1, kind_of_term hd2) with
-
       | Construct (sp1,_), Construct (sp2,_)
-          when List.length args1 = mis_constructor_nargs_env env sp1
+          when Int.equal (List.length args1) (mis_constructor_nargs_env env sp1)
             ->
 	  let sorts = List.intersect sorts (allowed_sorts env (fst sp1)) in
           (* both sides are fully applied constructors, so either we descend,
@@ -655,7 +656,7 @@ let descend_then sigma env head dirn =
       let p =
 	it_mkLambda_or_LetIn (lift (mip.mind_nrealargs+1) resty) deparsign in
       let build_branch i =
-	let result = if i = dirn then dirnval else dfltval in
+	let result = if Int.equal i dirn then dirnval else dfltval in
 	it_mkLambda_or_LetIn_name env result cstr.(i-1).cs_args in
       let brl =
         List.map build_branch
@@ -699,7 +700,7 @@ let construct_discriminator sigma env dirn c sort =
   let p = it_mkLambda_or_LetIn (mkSort sort_0) deparsign in
   let cstrs = get_constructors env indf in
   let build_branch i =
-    let endpt = if i = dirn then true_0 else false_0 in
+    let endpt = if Int.equal i dirn then true_0 else false_0 in
     it_mkLambda_or_LetIn endpt cstrs.(i-1).cs_args in
   let brl =
     List.map build_branch(List.interval 1 (Array.length mip.mind_consnames)) in
@@ -745,7 +746,7 @@ let ind_scheme_of_eq lbeq =
   let kind = inductive_sort_family mip in
   (* use ind rather than case by compatibility *)
   let kind =
-    if kind = InProp then Elimschemes.ind_scheme_kind_from_prop
+    if kind == InProp then Elimschemes.ind_scheme_kind_from_prop
     else Elimschemes.ind_scheme_kind_from_type in
   let c = find_scheme kind (fst (destInd lbeq.eq)) in
     ConstRef c
@@ -1095,7 +1096,7 @@ let inject_at_positions env sigma (eq,_,(t,t1,t2)) eq_clause posns tac =
     with Failure _ -> None
   in
   let injectors = List.map_filter filter posns in
-  if injectors = [] then
+  if List.is_empty injectors then
     errorlabstrm "Equality.inj" (str "Failed to decompose the equality.");
   tclTHEN
     (tclMAP
@@ -1139,9 +1140,9 @@ let injEq ipats (eq,_,(t,t1,t2) as u) eq_clause =
 (* if yes, check if the user has declared the dec principle *)
 (* and compare the fst arguments of the dep pair *)
         let new_eq_args = [|type_of env sigma (ar1.(3));ar1.(3);ar2.(3)|] in
-        if ( (eqTypeDest = sigTconstr()) &&
-             (Ind_tables.check_scheme (!eq_dec_scheme_kind_name()) (fst ind)=true) &&
-             (is_conv env sigma (ar1.(2)) (ar2.(2)) = true))
+        if ((eq_constr eqTypeDest (sigTconstr())) &&
+             (Ind_tables.check_scheme (!eq_dec_scheme_kind_name()) (fst ind)) &&
+             (is_conv env sigma (ar1.(2)) (ar2.(2))))
               then (
 (* Require Import Eqdec_dec copied from vernac_require in vernacentries.ml*)
               let qidl = qualid_of_reference
@@ -1401,8 +1402,8 @@ let unfold_body x gl =
 
 
 let restrict_to_eq_and_identity eq = (* compatibility *)
-  if eq <> Universes.constr_of_global glob_eq 
-    && eq <> Universes.constr_of_global glob_identity then
+  if not (eq_constr eq (Universes.constr_of_global glob_eq)) && (*FIXME*)
+    not (eq_constr eq (Universes.constr_of_global glob_identity)) then
     raise PatternMatchingFailure
 
 exception FoundHyp of (identifier * constr * bool)
@@ -1423,7 +1424,7 @@ let subst_one dep_proof_ok x (hyp,rhs,dir) gl =
   (* The set of hypotheses using x *)
   let depdecls =
     let test (id,_,c as dcl) =
-      if id <> hyp && occur_var_in_decl (pf_env gl) x dcl then Some dcl
+      if not (id_eq id hyp) && occur_var_in_decl (pf_env gl) x dcl then Some dcl
       else None in
     List.rev (List.map_filter test (pf_hyps gl)) in
   let dephyps = List.map (fun (id,_,_) -> id) depdecls in
@@ -1443,7 +1444,7 @@ let subst_one dep_proof_ok x (hyp,rhs,dir) gl =
 	  (replace_term (mkVar x) rhs hval)
 	  (Some (replace_term (mkVar x) rhs htyp)) nowhere
   in
-  let need_rewrite = dephyps <> [] || depconcl in
+  let need_rewrite = not (List.is_empty dephyps) || depconcl in
   tclTHENLIST
     ((if need_rewrite then
       [generalize abshyps;
@@ -1461,7 +1462,7 @@ let subst_one_var dep_proof_ok x gl =
   let hyps = pf_hyps gl in
   let (_,xval,_) = pf_get_hyp gl x in
   (* If x has a body, simply replace x with body and clear x *)
-  if xval <> None then tclTHEN (unfold_body x) (clear [x]) gl else
+  if not (Option.is_empty xval) then tclTHEN (unfold_body x) (clear [x]) gl else
   (* x is a variable: *)
   let varx = mkVar x in
   (* Find a non-recursive definition for x *)

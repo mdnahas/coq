@@ -87,6 +87,9 @@ let update_case_info ci modlist =
 
 let empty_modlist = (Cmap.empty, Mindmap.empty)
 
+let is_empty_modlist (cm, mm) =
+  Cmap.is_empty cm && Mindmap.is_empty mm
+
 let expmod_constr modlist c =
   let rec substrec c =
     match kind_of_term c with
@@ -114,7 +117,7 @@ let expmod_constr modlist c =
   | _ -> map_constr substrec c
 
   in
-  if modlist = empty_modlist then c
+  if is_empty_modlist modlist then c
   else substrec c
 
 let abstract_constant_type =
@@ -158,7 +161,7 @@ let cook_constant env r =
   in
   let const_hyps =
     Sign.fold_named_context (fun (h,_,_) hyps ->
-      List.filter (fun (id,_,_) -> id <> h) hyps)
+      List.filter (fun (id,_,_) -> not (id_eq id h)) hyps)
       hyps ~init:cb.const_hyps in
   let typ = 
     abstract_constant_type (expmod_constr r.d_modlist cb.const_type) hyps 

@@ -47,7 +47,7 @@ let mkLambda_string s t c = mkLambda (Name (id_of_string s), t, c)
 (* Christine Paulin, 1996 *)
 
 let mis_make_case_com dep env sigma (ind, u as pind) (mib,mip as specif) kind =
-  let usubst = Univ.make_universe_subst u mib.mind_universes in
+  let usubst = Inductive.make_inductive_subst mib u in
   let lnamespar = Sign.subst_univs_context usubst
     mib.mind_params_ctxt
   in
@@ -67,7 +67,7 @@ let mis_make_case_com dep env sigma (ind, u as pind) (mib,mip as specif) kind =
   let constrs = get_constructors env indf in
 
   let rec add_branch env k =
-    if k = Array.length mip.mind_consnames then
+    if Int.equal k (Array.length mip.mind_consnames) then
       let nbprod = k+1 in
 
       let indf' = lift_inductive_family nbprod indf in
@@ -269,7 +269,7 @@ let mis_make_indrec env sigma listdepkind mib u =
   let nparams = mib.mind_nparams in
   let nparrec = mib.mind_nparams_rec in
   let evdref = ref sigma in
-  let usubst = Univ.make_universe_subst u mib.mind_universes in
+  let usubst = Inductive.make_inductive_subst mib u in
   let lnonparrec,lnamesparrec =
     context_chop (nparams-nparrec) (Sign.subst_univs_context usubst mib.mind_params_ctxt) in
   let nrec = List.length listdepkind in
@@ -288,7 +288,7 @@ let mis_make_indrec env sigma listdepkind mib u =
     Array.map (fun mip -> mip.mind_recargs) mib.mind_packets in
   (* recarg information for non recursive parameters *)
   let rec recargparn l n =
-    if n = 0 then l else recargparn (mk_norec::l) (n-1) in
+    if Int.equal n 0 then l else recargparn (mk_norec::l) (n-1) in
   let recargpar = recargparn [] (nparams-nparrec) in
   let make_one_rec p =
     let makefix nbconstruct =
@@ -394,7 +394,7 @@ let mis_make_indrec env sigma listdepkind mib u =
           let tyi = snd indi in
 	  let nconstr = Array.length mipi.mind_consnames in
 	  let rec onerec env j =
-	    if j = nconstr then
+	    if Int.equal j nconstr then
 	      make_branch env (i+j) rest
 	    else
 	      let recarg = (dest_subterms recargsvec.(tyi)).(j) in
@@ -446,11 +446,15 @@ let build_case_analysis_scheme env sigma pity dep kind =
   let (mib,mip) = lookup_mind_specif env (fst pity) in
   mis_make_case_com dep env sigma pity (mib,mip) kind
 
+let is_in_prop mip =
+  match inductive_sort_family mip with
+  | InProp -> true
+  | _ -> false
+
 let build_case_analysis_scheme_default env sigma pity kind =
   let (mib,mip) = lookup_mind_specif env (fst pity) in
-  let dep = inductive_sort_family mip <> InProp in
+  let dep = not (is_in_prop mip) in
   mis_make_case_com dep env sigma pity (mib,mip) kind
-
 
 (**********************************************************************)
 (* [modify_sort_scheme s rec] replaces the sort of the scheme
@@ -471,7 +475,7 @@ let modify_sort_scheme sort =
   let rec drec npar elim =
     match kind_of_term elim with
       | Lambda (n,t,c) ->
-	  if npar = 0 then
+	  if Int.equal npar 0 then
 	    mkLambda (n, change_sort_arity sort t, c)
 	  else
 	    mkLambda (n, t, drec (npar-1) c)
@@ -486,7 +490,7 @@ let weaken_sort_scheme sort npars term =
   let rec drec np elim =
     match kind_of_term elim with
       | Prod (n,t,c) ->
-	  if np = 0 then
+	  if Int.equal np 0 then
             let t' = change_sort_arity sort t in
             mkProd (n, t', c),
             mkLambda (n, t', mkApp(term,Termops.rel_vect 0 (npars+1)))
@@ -508,7 +512,7 @@ let check_arities listdepkind =
   let _ = List.fold_left
     (fun ln (((_,ni as mind),u),mibi,mipi,dep,kind) ->
        let kelim = elim_sorts (mibi,mipi) in
-       if not (List.exists ((=) kind) kelim) then raise
+       if not (List.exists ((==) kind) kelim) then raise
 	 (RecursionSchemeError
 	  (NotAllowedCaseAnalysis (true, fst (Universes.fresh_sort_in_family (Global.env ())
 					      kind),(mind,u))))
@@ -527,7 +531,7 @@ let build_mutual_induction_scheme env sigma = function
     	(List.map
 	   (function ((mind',u'),dep',s') ->
 	      let (sp',_) = mind' in
-	      if sp=sp' then
+	      if eq_mind sp sp' then
                 let (mibi',mipi') = lookup_mind_specif env mind' in
 		((mind',u'),mibi',mipi',dep',s')
 	      else

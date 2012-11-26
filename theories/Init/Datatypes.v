@@ -184,10 +184,14 @@ Arguments pair {A B} _ _.
 Section projections.
   Context {A : Type} {B : Type}.
 
+<<<<<<< HEAD
   Definition fst (p:A * B) := match p with
+=======
+  Polymorphic Definition fst (p:A * B) := match p with
+>>>>>>> 90c5d3f0d8b3fb1db45a1d92375d7b7347c79e21
 				| (x, y) => x
                               end.
-  Definition snd (p:A * B) := match p with
+  Polymorphic Definition snd (p:A * B) := match p with
 				| (x, y) => y
                               end.
 End projections.

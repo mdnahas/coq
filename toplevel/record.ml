@@ -62,10 +62,9 @@ let typecheck_params_and_fields def id t ps nots fs =
   let evars = ref (Evd.from_env ~ctx:(Univ.empty_universe_context_set) env0) in
   let _ = 
     let error bk (loc, name) = 
-      match bk with
-      | Default _ ->
-	  if name = Anonymous then 
-	    user_err_loc (loc, "record", str "Record parameters must be named")
+      match bk, name with
+      | Default _, Anonymous ->
+        user_err_loc (loc, "record", str "Record parameters must be named")
       | _ -> ()
     in
       List.iter 
@@ -177,7 +176,7 @@ let subst_projection fid l c =
   in
   let c' = lift 1 c in (* to get [c] defined in ctxt [[params;fields;x:ind]] *)
   let c'' = substrec 0 c' in
-  if !bad_projs <> [] then
+  if not (List.is_empty !bad_projs) then
     raise (NotDefinable (MissingProj (fid,List.rev !bad_projs)));
   c''
 
@@ -253,7 +252,7 @@ let declare_projections indsp ?(kind=StructureComponent) ?name coers fieldimpls 
             with NotDefinable why ->
 	      warning_or_error coe indsp why;
 	      (None::sp_projs,NoProjection fi::subst) in
-      (nfi-1,(fi, optci=None)::kinds,sp_projs,subst))
+      (nfi-1,(fi, Option.is_empty optci)::kinds,sp_projs,subst))
       (List.length fields,[],[],[]) coers (List.rev fields) (List.rev fieldimpls)
   in (kinds,sp_projs)
 
@@ -298,7 +297,7 @@ let declare_structure finite infer poly ctx id idbuild paramimpls params arity f
   let mie =
     { mind_entry_params = List.map degenerate_decl params;
       mind_entry_record = true;
-      mind_entry_finite = finite<>CoFinite;
+      mind_entry_finite = finite != CoFinite;
       mind_entry_inds = [mie_ind];
       mind_entry_polymorphic = poly;
       mind_entry_universes = ctx } in
@@ -423,7 +422,8 @@ let definition_structure (kind,finite,infer,(is_coe,(loc,idstruc)),ps,cfs,idbuil
     | _ -> acc in
   let allnames =  idstruc::(List.fold_left extract_name [] fs) in
   if not (List.distinct allnames) then error "Two objects have the same name";
-  if not (kind = Class false) && List.exists ((<>) None) priorities then
+  let isnot_class = match kind with Class false -> false | _ -> true in
+  if isnot_class && List.exists (fun opt -> not (Option.is_empty opt)) priorities then
     error "Priorities only allowed for type class substructures";
   (* Now, younger decl in params and fields is on top *)
   let ctx, arity, implpars, params, implfs, fields =
@@ -442,6 +442,6 @@ let definition_structure (kind,finite,infer,(is_coe,(loc,idstruc)),ps,cfs,idbuil
 	    (succ (List.length params)) impls) implfs in
 	let ind = declare_structure finite infer poly ctx idstruc 
 	  idbuild implpars params arity implfs 
-	  fields is_coe (List.map (fun coe -> coe <> None) coers) sign in
+	  fields is_coe (List.map (fun coe -> not (Option.is_empty coe)) coers) sign in
 	if infer then search_record declare_record_instance (ConstructRef (ind,1)) sign;
 	IndRef ind

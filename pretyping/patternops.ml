@@ -21,6 +21,62 @@ open Decl_kinds
 open Pattern
 open Evd
 
+let case_info_pattern_eq i1 i2 =
+  i1.cip_style == i2.cip_style &&
+  Option.Misc.compare eq_ind i1.cip_ind i2.cip_ind &&
+  Option.Misc.compare Int.equal i1.cip_ind_args i2.cip_ind_args &&
+  i1.cip_extensible == i2.cip_extensible
+
+let rec constr_pattern_eq p1 p2 = match p1, p2 with
+| PRef r1, PRef r2 -> eq_gr r1 r2
+| PVar v1, PVar v2 -> id_eq v1 v2
+| PEvar (ev1, ctx1), PEvar (ev2, ctx2) ->
+  Int.equal ev1 ev2 && Array.equal constr_pattern_eq ctx1 ctx2
+| PRel i1, PRel i2 ->
+  Int.equal i1 i2
+| PApp (t1, arg1), PApp (t2, arg2) ->
+  constr_pattern_eq t1 t2 && Array.equal constr_pattern_eq arg1 arg2
+| PSoApp (id1, arg1), PSoApp (id2, arg2) ->
+  id_eq id1 id2 && List.equal constr_pattern_eq arg1 arg2
+| PLambda (v1, t1, b1), PLambda (v2, t2, b2) ->
+  name_eq v1 v2 && constr_pattern_eq t1 t2 && constr_pattern_eq b1 b2
+| PProd (v1, t1, b1), PProd (v2, t2, b2) ->
+  name_eq v1 v2 && constr_pattern_eq t1 t2 && constr_pattern_eq b1 b2
+| PLetIn (v1, t1, b1), PLetIn (v2, t2, b2) ->
+  name_eq v1 v2 && constr_pattern_eq t1 t2 && constr_pattern_eq b1 b2
+| PSort s1, PSort s2 -> glob_sort_eq s1 s2
+| PMeta m1, PMeta m2 -> Option.Misc.compare id_eq m1 m2
+| PIf (t1, l1, r1), PIf (t2, l2, r2) ->
+  constr_pattern_eq t1 t2 && constr_pattern_eq l1 l2 && constr_pattern_eq r1 r2
+| PCase (info1, p1, r1, l1), PCase (info2, p2, r2, l2) ->
+  case_info_pattern_eq info1 info2 &&
+  constr_pattern_eq p1 p2 &&
+  constr_pattern_eq r1 r2 &&
+  List.equal pattern_eq l1 l2
+| PFix f1, PFix f2 ->
+  fixpoint_eq f1 f2
+| PCoFix f1, PCoFix f2 ->
+  cofixpoint_eq f1 f2
+| _ -> false
+(** FIXME: fixpoint and cofixpoint should be relativized to pattern *)
+
+and pattern_eq (i1, j1, p1) (i2, j2, p2) =
+  Int.equal i1 i2 && Int.equal j1 j2 && constr_pattern_eq p1 p2
+
+and fixpoint_eq ((arg1, i1), r1) ((arg2, i2), r2) =
+  Int.equal i1 i2 &&
+  Array.equal Int.equal arg1 arg2 &&
+  rec_declaration_eq r1 r2
+
+and cofixpoint_eq (i1, r1) (i2, r2) =
+  Int.equal i1 i2 &&
+  rec_declaration_eq r1 r2
+
+and rec_declaration_eq (n1, c1, r1) (n2, c2, r2) =
+  Array.equal name_eq n1 n2 &&
+  Array.equal eq_constr c1 c2 &&
+  Array.equal eq_constr r1 r2
+
 let rec occur_meta_pattern = function
   | PApp (f,args) ->
       (occur_meta_pattern f) or (Array.exists occur_meta_pattern args)
@@ -134,7 +190,10 @@ let map_pattern_with_binders g f l = function
   | PFix _ | PCoFix _ as x) -> x
 
 let error_instantiate_pattern id l =
-  let is = if List.length l = 1 then "is" else "are" in
+  let is = match l with
+  | [_] -> "is" 
+  | _ -> "are"
+  in
   errorlabstrm "" (str "Cannot substitute the term bound to " ++ pr_id id
     ++ strbrk " in pattern because the term refers to " ++ pr_enum pr_id l
     ++ strbrk " which " ++ str is ++ strbrk " not bound in the pattern.")
@@ -326,8 +385,11 @@ and pats_of_glob_branches loc metas vars ind brs =
     | [] -> false, []
     | [(_,_,[PatVar(_,Anonymous)],GHole _)] -> true, [] (* ends with _ => _ *)
     | (_,_,[PatCstr(_,(indsp,j),lv,_)],br) :: brs ->
-      if ind <> None && ind <> Some indsp then
-        err loc (Pp.str "All constructors must be in the same inductive type.");
+      let () = match ind with
+      | Some sp when eq_ind sp indsp -> ()
+      | _ ->
+        err loc (Pp.str "All constructors must be in the same inductive type.")
+      in
       if Intset.mem (j-1) indexes then
 	err loc
           (str "No unique branch for " ++ int j ++ str"-th constructor.");

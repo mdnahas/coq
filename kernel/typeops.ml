@@ -203,12 +203,14 @@ let sort_of_product env domsort rangsort =
     | (Prop _,  Prop Pos) -> rangsort
     (* Product rule (Type,Set,?) *)
     | (Type u1, Prop Pos) ->
-        if engagement env = Some ImpredicativeSet then
+        begin match engagement env with
+        | Some ImpredicativeSet ->
           (* Rule is (Type,Set,Set) in the Set-impredicative calculus *)
           rangsort
-        else
+        | _ ->
           (* Rule is (Type_i,Set,Type_i) in the Set-predicative calculus *)
           Type (sup u1 type0_univ)
+        end
     (* Product rule (Prop,Type_i,Type_i) *)
     | (Prop Pos,  Type u2)  -> Type (sup type0_univ u2)
     (* Product rule (Prop,Type_i,Type_i) *)
@@ -331,7 +333,7 @@ let judge_of_case env ci pj cj lfj =
 
 let type_fixpoint env lna lar vdefj =
   let lt = Array.length vdefj in
-  assert (Array.length lar = lt);
+  assert (Int.equal (Array.length lar) lt);
   try
     conv_leq_vecti env (Array.map j_type vdefj) (Array.map (fun ty -> lift lt ty) lar)
   with NotConvertibleVect i ->

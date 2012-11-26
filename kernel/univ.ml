@@ -66,6 +66,8 @@ module UniverseLevel = struct
       Int.equal i1 i2 && Int.equal (Names.dir_path_ord dp1 dp2) 0
     | _ -> false
 
+  let make m n = Level (n, m)
+
   let to_string = function
     | Prop -> "Prop"
     | Set -> "Set"
@@ -100,13 +102,33 @@ let eq_levels = UniverseLevel.equal
    maximum of two algebraic universes
 *)
 
-type universe =
+module Universe =
+struct
+  type t =
   | Atom of UniverseLevel.t
   | Max of UniverseLevel.t list * UniverseLevel.t list
 
-let make_universe_level (m,n) = UniverseLevel.Level (n,m)
-let make_universe l = Atom l
-let make_univ c = Atom (make_universe_level c)
+  let compare u1 u2 =
+    if u1 == u2 then 0 else
+    match u1, u2 with
+    | Atom l1, Atom l2 -> UniverseLevel.compare l1 l2
+    | Max (lt1, le1), Max (lt2, le2) ->
+      let c = List.compare UniverseLevel.compare lt1 lt2 in
+      if Int.equal c 0 then
+        List.compare UniverseLevel.compare le1 le2
+      else c
+    | Atom _, Max _ -> -1
+    | Max _, Atom _ -> 1
+
+  let equal u1 u2 = Int.equal (compare u1 u2) 0
+
+  let make l = Atom l
+
+end
+
+open Universe
+
+type universe = Universe.t
 
 let universe_level = function
   | Atom l -> Some l
@@ -131,9 +153,12 @@ let pr_uni = function
   | Max ([],[u]) ->
       str "(" ++ pr_uni_level u ++ str ")+1"
   | Max (gel,gtl) ->
+      let opt_sep = match gel, gtl with
+      | [], _ | _, [] -> mt ()
+      | _ -> pr_comma ()
+      in
       str "max(" ++ hov 0
-       (prlist_with_sep pr_comma pr_uni_level gel ++
-	  (if gel <> [] & gtl <> [] then pr_comma () else mt ()) ++
+       (prlist_with_sep pr_comma pr_uni_level gel ++ opt_sep ++
 	prlist_with_sep pr_comma
 	  (fun x -> str "(" ++ pr_uni_level x ++ str ")+1") gtl) ++
       str ")"
@@ -591,10 +616,10 @@ module Constraint = Set.Make(
     type t = univ_constraint
     let compare (u,c,v) (u',c',v') =
       let i = constraint_type_ord c c' in
-      if i <> 0 then i
+      if not (Int.equal i 0) then i
       else
 	let i' = UniverseLevel.compare u u' in
-	if i' <> 0 then i'
+	if not (Int.equal i' 0) then i'
 	else UniverseLevel.compare v v'
   end)
 
@@ -1056,7 +1081,7 @@ let solve_constraints_system levels level_bounds =
   let nind = Array.length v in
   for i=0 to nind-1 do
     for j=0 to nind-1 do
-      if i<>j & is_direct_sort_constraint levels.(j) v.(i) then
+      if not (Int.equal i j) && is_direct_sort_constraint levels.(j) v.(i) then
 	v.(i) <- sup v.(i) level_bounds.(j)
     done;
     for j=0 to nind-1 do
@@ -1080,7 +1105,10 @@ let subst_large_constraints =
 
 let no_upper_constraints u cst =
   match u with
-  | Atom u -> Constraint.for_all (fun (u1,_,_) -> u1 <> u) cst
+  | Atom u ->
+    let test (u1, _, _) =
+      not (Int.equal (UniverseLevel.compare u1 u) 0) in
+    Constraint.for_all test cst
   | Max _ -> anomaly "no_upper_constraints"
 
 (* Is u mentionned in v (or equals to v) ? *)
@@ -1097,10 +1125,14 @@ let pr_arc = function
   | _, Canonical {univ=u; lt=[]; le=[]} ->
       mt ()
   | _, Canonical {univ=u; lt=lt; le=le} ->
+      let opt_sep = match lt, le with
+      | [], _ | _, [] -> mt ()
+      | _ -> spc ()
+      in
       pr_uni_level u ++ str " " ++
       v 0
         (pr_sequence (fun v -> str "< " ++ pr_uni_level v) lt ++
-	 (if lt <> [] & le <> [] then spc () else mt()) ++
+	 opt_sep ++
          pr_sequence (fun v -> str "<= " ++ pr_uni_level v) le) ++
       fnl ()
   | u, Equiv v ->
