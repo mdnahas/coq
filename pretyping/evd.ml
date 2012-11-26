@@ -62,9 +62,9 @@ let evar_env evi =
     (reset_context (Global.env()))
 
 let eq_evar_body b1 b2 = match b1, b2 with
-| Evar_empty, Evar_empty -> true
-| Evar_defined t1, Evar_defined t2 -> eq_constr t1 t2
-| _ -> false
+  | Evar_empty, Evar_empty -> true
+  | Evar_defined t1, Evar_defined t2 -> eq_constr t1 t2
+  | _ -> false
 
 let eq_evar_info ei1 ei2 =
   ei1 == ei2 ||
