@@ -18,7 +18,7 @@ open Libnames
 (** Datas associated to section variables and local definitions *)
 
 type variable_data =
-    dir_path * bool (* opacity *) * Univ.constraints * logical_kind
+    dir_path * bool (* opacity *) * Univ.universe_context_set * Univ.constraints * logical_kind
 
 let vartab = ref (Idmap.empty : variable_data Idmap.t)
 
@@ -29,10 +29,11 @@ let _ = Summary.declare_summary "VARIABLE"
 
 let add_variable_data id o = vartab := Idmap.add id o !vartab
 
-let variable_path id = let (p,_,_,_) = Idmap.find id !vartab in p
-let variable_opacity id = let (_,opaq,_,_) = Idmap.find id !vartab in opaq
-let variable_kind id = let (_,_,_,k) = Idmap.find id !vartab in k
-let variable_constraints id = let (_,_,cst,_) = Idmap.find id !vartab in cst
+let variable_path id = let (p,_,_,_,_) = Idmap.find id !vartab in p
+let variable_opacity id = let (_,opaq,_,_,_) = Idmap.find id !vartab in opaq
+let variable_kind id = let (_,_,_,_,k) = Idmap.find id !vartab in k
+let variable_context id = let (_,_,ctx,_,_) = Idmap.find id !vartab in ctx
+let variable_constraints id = let (_,_,_,cst,_) = Idmap.find id !vartab in cst
 
 let variable_secpath id =
   let dir = drop_dirpath_prefix (Lib.library_dp()) (variable_path id) in
