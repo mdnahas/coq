@@ -143,8 +143,12 @@ let ise_and evd l =
         if b then  ise_and i' l else (evd,false) in
   ise_and evd l
 
-(* This function requires to get the outermost arguments first.
-   It is a fold_right to be backward compatibility.
+(* This function requires to get the outermost arguments first.  It is
+   a fold_right for backward compatibility.
+
+   It tries to unify the suffix of 2 lists element by element and if
+   it reaches the end of a list, it returns the remaining elements in
+   the other list if there are some.
 *)
 let generic_ise_list2 i f l1 l2 =
   let rec aux i l1 l2 =
@@ -157,6 +161,7 @@ let generic_ise_list2 i f l1 l2 =
       if b then (aa, f i' x y) else None, (i, false)
   in aux i (List.rev l1) (List.rev l2)
 
+(* Same but the 2 lists must have the same length *)
 let ise_list2 evd f l1 l2 =
   match generic_ise_list2 evd f l1 l2 with
   | None, out -> out
@@ -173,6 +178,10 @@ let ise_array2 evd f v1 v2 =
   if Int.equal lv1 (Array.length v2) then allrec evd (pred lv1)
   else (evd,false)
 
+(* This function tries to unify 2 stacks element by element. It works
+   from the end to the beginning. If it unifies a non empty suffix of
+   stacks but not the entire stacks, the first part of the answer is
+   Some(the remaining prefixes to tackle)) *)
 let ise_stack2 no_app env evd f sk1 sk2 =
   let rec ise_stack2 deep i sk1 sk2 =
     let fal () = if deep then Some (List.rev sk1, List.rev sk2), (i,deep)
@@ -196,6 +205,11 @@ let ise_stack2 no_app env evd f sk1 sk2 =
     | Zupdate _ :: _, _ | Zshift _ :: _, _
     | _, Zupdate _ :: _ | _, Zshift _ :: _ -> assert false
     | Zapp l1 :: q1, Zapp l2 :: q2 -> if no_app&&deep then fal () else begin
+      (* Is requiring to match on all the shorter list a restriction
+	 here ? we could imagine a generalization of
+	 generic_ise_list2 that succeed when it matches only a strict
+	 non empty suffix of both lists and returns in this case the 2
+	 prefixes *)
       match generic_ise_list2 i (fun ii -> f env ii CONV) l1 l2 with
       |_,(_, false) -> fal ()
       |None,(i', true) -> ise_stack2 true i' q1 q2
@@ -205,6 +219,7 @@ let ise_stack2 no_app env evd f sk1 sk2 =
     |_, _ -> fal ()
   in ise_stack2 false evd (List.rev sk1) (List.rev sk2)
 
+(* Make sure that the matching suffix is the all stack *)
 let exact_ise_stack2 env evd f sk1 sk2 =
   match ise_stack2 false env evd f sk1 sk2 with | None, out -> out | _ -> (evd, false)
 
@@ -223,14 +238,15 @@ let rec evar_conv_x ts env evd pbty term1 term2 =
      could have found, we do it only if the terms are free of evar.
      Note: incomplete heuristic... *)
   let ground_test =
-    if is_ground_term evd term1 && is_ground_term evd term2 then
-      if is_trans_fconv pbty ts env evd term1 term2 then
-        Some true
-      else if is_ground_env evd env then Some false
-      else None
-    else None in
+    if is_ground_term evd term1 && is_ground_term evd term2 then (
+      let evd, b = trans_fconv pbty ts env evd term1 term2 in
+	if b then Some (evd, true)
+	else if is_ground_env evd env then Some (evd, false)
+	else None)
+    else None
+  in
   match ground_test with
-      Some b -> (evd,b)
+      Some res -> res
     | None ->
 	(* Until pattern-unification is used consistently, use nohdbeta to not
 	   destroy beta-redexes that can be used for 1st-order unification *)
@@ -324,9 +340,11 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
 	ise_try evd [f1; f2]
 
 	| _, _ ->
-	let f1 i = (* FIXME will unfold polymorphic constants always *)
-	  if eq_constr term1 term2 then
-	    exact_ise_stack2 env i (evar_conv_x ts) sk1 sk2
+	let f1 i = 
+	  let b,univs = eq_constr_univs term1 term2 in
+	  if b then
+	    let i = Evd.add_constraints i univs in
+	      exact_ise_stack2 env i (evar_conv_x ts) sk1 sk2
 	  else
 	     (i,false)
 	and f2 i =
@@ -434,7 +452,7 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
         let c = nf_evar evd c1 in
 	let env' = push_rel (na,None,c) env in
         let appr1 = whd_betaiota_deltazeta_for_iota_state  ts env' evd (c'1, empty_stack) in
-	let appr2 = (term2, sk2 @ [Zshift 1 ; Zapp [mkRel 1]]) in
+	let appr2 = whd_nored_state evd (zip (term2, sk2 @ [Zshift 1]), [Zapp [mkRel 1]]) in
 	evar_eqappr_x ts env' evd CONV appr1 appr2
 
     | _, Rigid when isLambda term2 ->
@@ -442,7 +460,7 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
 	let (na,c2,c'2) = destLambda term2 in
         let c = nf_evar evd c2 in
 	let env' = push_rel (na,None,c) env in
-	let appr1 = (term1, sk1 @ [Zshift 1 ; Zapp [mkRel 1]]) in
+	let appr1 = whd_nored_state evd (zip (term1, sk1 @ [Zshift 1]), [Zapp [mkRel 1]]) in
         let appr2 = whd_betaiota_deltazeta_for_iota_state ts env' evd (c'2, empty_stack) in
 	evar_eqappr_x ts env' evd CONV appr1 appr2
 
@@ -450,11 +468,11 @@ and evar_eqappr_x ?(rhs_is_already_stuck = false)
         match kind_of_term term1, kind_of_term term2 with
 
 	| Sort s1, Sort s2 when app_empty ->
-	    (try 
-	       let evd' = 
-		 if pbty == CONV 
-		 then Evd.set_eq_sort evd s1 s2 
-		 else Evd.set_leq_sort evd s1 s2 
+	    (try
+	       let evd' =
+		 if pbty == CONV
+		 then Evd.set_eq_sort evd s1 s2
+		 else Evd.set_leq_sort evd s1 s2
 	       in (evd', true)
 	     with Univ.UniverseInconsistency _ -> (evd, false)
 	     | _ -> (evd, false))
@@ -724,7 +742,7 @@ let apply_conversion_problem_heuristic ts env evd pbty t1 t2 =
          type inference *)
       choose_less_dependent_instance evk2 evd term1 args2
   | Evar (evk1,args1), Evar (evk2,args2) when Int.equal evk1 evk2 ->
-      let f env evd pbty x y = (evd,is_trans_fconv pbty ts env evd x y) in
+      let f env evd pbty x y = trans_fconv pbty ts env evd x y in
       solve_refl ~can_drop:true f env evd evk1 args1 args2, true
   | Evar ev1, Evar ev2 ->
       solve_evar_evar ~force:true

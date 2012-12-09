@@ -128,7 +128,7 @@ let empty_se = ([],[],Bounded_net.create ())
 let eq_constr_or_reference x y = 
   match x, y with
   | IsConstr x, IsConstr y -> eq_constr x y
-  | IsReference x, IsReference y -> eq_gr x y
+  | IsGlobal x, IsGlobal y -> eq_gr x y
   | _, _ -> false
 
 let eq_pri_auto_tactic (_, x) (_, y) =
@@ -174,7 +174,7 @@ let is_transparent_gr (ids, csts) = function
 let dummy_goal = Goal.V82.dummy_goal
 
 let instantiate_constr_or_ref env sigma c =
-  let c, ctx = constr_of_constr_or_ref env c in
+  let c, ctx = Universes.fresh_global_or_constr_instance env c in
   let cty = Retyping.get_type_of env sigma c in
     (c, cty), ctx
 
@@ -561,7 +561,7 @@ let make_apply_entry env sigma (eapply,hnf,verbose) pri ?(name=PathAny) (c, cty,
    cty is the type of constr *)
 
 let make_resolves env sigma flags pri ?name cr =
-  let c, ctx = constr_of_constr_or_ref env cr in
+  let c, ctx = Universes.fresh_global_or_constr_instance env cr in
   let cty = Retyping.get_type_of env sigma c in
   let try_apply f =
     try Some (f (c, cty, ctx)) with Failure _ -> None in
@@ -600,10 +600,10 @@ let make_extern pri pat tacast =
    { pri = pri;
      pat = pat;
      name = PathAny;
-     code = Extern tacast })
+     code = Extern tacast })  
 
 let make_trivial env sigma ?(name=PathAny) r =
-  let c,ctx = Universes.fresh_global_instance env r in
+  let c,ctx = Universes.fresh_global_or_constr_instance env r in
   let t = hnf_constr env sigma (type_of env sigma c) in
   let hd = head_of_constr_reference (fst (head_constr t)) in
   let ce = mk_clenv_from dummy_goal (c,t) in
@@ -678,9 +678,9 @@ let set_extern_subst_tactic f = forward_subst_tactic := f
   (*   | IsConstr c -> let c' = subst_mps subst c in  *)
   (* 		      if c' == c then cr *)
   (* 		      else IsConstr c' *)
-  (*   | IsReference r -> let r' = subst_global_reference subst r in *)
+  (*   | IsGlobal r -> let r' = subst_global_reference subst r in *)
   (* 			 if r' == r then cr *)
-  (* 			 else IsReference r' *)
+  (* 			 else IsGlobal r' *)
   (* in *)
 
 let subst_autohint (subst,(local,name,hintlist as obj)) =
@@ -763,6 +763,8 @@ let remove_hints local dbnames grs =
 	 Lib.add_anonymous_leaf (inAutoHint(local, dbname, RemoveHints grs)))
       dbnames
 
+open Misctypes
+
 (**************************************************************************)
 (*                     The "Hint" vernacular command                      *)
 (**************************************************************************)
@@ -773,8 +775,7 @@ let add_resolves env sigma clist local dbnames =
 	 (inAutoHint
 	    (local,dbname, AddHints
      	      (List.flatten (List.map (fun (x, hnf, path, gr) ->
-		make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path 
-	         (IsReference gr)) clist)))))
+	        make_resolves env sigma (true,hnf,Flags.is_verbose()) x ~name:path gr) clist)))))
     dbnames
 
 let add_unfolds l local dbnames =
@@ -829,8 +830,8 @@ let forward_intern_tac =
 let set_extern_intern_tac f = forward_intern_tac := f
 
 type hints_entry =
-  | HintsResolveEntry of (int option * bool * hints_path_atom * global_reference) list
-  | HintsImmediateEntry of (hints_path_atom * global_reference) list
+  | HintsResolveEntry of (int option * bool * hints_path_atom * global_reference_or_constr) list
+  | HintsImmediateEntry of (hints_path_atom * global_reference_or_constr) list
   | HintsCutEntry of hints_path
   | HintsUnfoldEntry of evaluable_global_reference list
   | HintsTransparencyEntry of evaluable_global_reference list * bool
@@ -871,13 +872,12 @@ let prepare_hint env (sigma,c) =
   iter c
 
 let interp_hints =
-  let hint_counter = ref 1 in
   fun h ->
   let f c =
     let evd,c = Constrintern.interp_open_constr Evd.empty (Global.env()) c in
     let c = prepare_hint (Global.env()) (evd,c) in
     Evarutil.check_evars (Global.env()) Evd.empty evd c;
-    c, Evd.get_universe_context_set evd in
+      c in
   let fr r =
     let gr = global_with_alias r in
     let r' = evaluable_of_global_reference (Global.env()) gr in
@@ -887,15 +887,8 @@ let interp_hints =
     match c with
     | HintsReference c ->
       let gr = global_with_alias c in
-	(PathHints [gr], gr)
-    | HintsConstr c ->
-      let term = f c in
-      let id = id_of_string ("auto_hint_" ^ string_of_int !hint_counter) in
-	incr hint_counter;
-      let kn = Declare.declare_definition ~internal:Declare.KernelSilent
-	~opaque:false id term in
-      let gr = ConstRef kn in
-	(PathHints [gr], gr)
+	(PathHints [gr], IsGlobal gr)
+    | HintsConstr c -> (PathAny, IsConstr (f c))
   in
   let fres (o, b, c) =
     let path, gr = fi c in
@@ -914,7 +907,7 @@ let interp_hints =
 	Dumpglob.dump_reference (fst (qualid_of_reference qid)) "<>" (string_of_reference qid) "ind";
         List.tabulate (fun i -> let c = (ind,i+1) in
 				let gr = ConstructRef c in
-				  None, true, PathHints [gr], gr)
+				  None, true, PathHints [gr], IsGlobal gr)
 	  (nconstructors ind) in
 	HintsResolveEntry (List.flatten (List.map constr_hints_of_ind lqid))
   | HintsExtern (pri, patcom, tacexp) ->
@@ -943,7 +936,7 @@ let add_hints local dbnames0 h =
 
 let pr_constr_or_ref = function
   | IsConstr c -> pr_constr c
-  | IsReference gr -> pr_global gr
+  | IsGlobal gr -> pr_global gr
 
 let pr_autotactic =
   function

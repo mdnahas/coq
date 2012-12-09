@@ -71,7 +71,7 @@ let src_dirs =
   [ []; ["lib"]; ["toplevel"]; ["kernel";"byterun"]  ]
 
 let includes () =
-  let coqlib = if !Flags.boot then "." else Envars.coqlib Errors.error in
+  let coqlib = if !Flags.boot then "." else Envars.coqlib ~fail:Errors.error in
   let mkdir d = "\"" ^ List.fold_left Filename.concat coqlib d ^ "\"" in
   (List.fold_right (fun d l -> "-I" :: mkdir d :: l) src_dirs [])
   @ ["-I"; "\"" ^ Envars.camlp4lib () ^ "\""]
@@ -233,8 +233,7 @@ let declare_loading_string () =
 
 (* create a temporary main file to link *)
 let create_tmp_main_file modules =
-  let main_name = Filename.temp_file "coqmain" ".ml" in
-  let oc = open_out main_name in
+  let main_name,oc = Filename.open_temp_file "coqmain" ".ml" in
   try
     (* Add the pre-linked modules *)
     output_string oc "List.iter Mltop.add_known_module [\"";

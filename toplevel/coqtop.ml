@@ -23,7 +23,7 @@ let fatal_error info =
 
 let get_version_date () =
   try
-    let coqlib = Envars.coqlib Errors.error in
+    let coqlib = Envars.coqlib ~fail:Errors.error in
     let ch = open_in (Filename.concat coqlib "revision") in
     let ver = input_line ch in
     let rev = input_line ch in
@@ -32,8 +32,8 @@ let get_version_date () =
 
 let print_header () =
   let (ver,rev) = (get_version_date ()) in
-    pp (str "Welcome to Coq "++ str ver ++ str " (" ++ str rev ++ str ")" ++ fnl ());
-    flush stdout
+  pp (str "Welcome to Coq "++ str ver ++ str " (" ++ str rev ++ str ")" ++ fnl ());
+  pp_flush ()
 
 let output_context = ref false
 
@@ -188,7 +188,8 @@ let parse_args arglist =
 	else if String.equal s "no" then Coq_config.with_geoproof := false
 	else usage ();
 	parse rem
-
+    | "-parameters-matter" :: rem ->
+        Indtypes.enforce_parameters_matter (); parse rem
     | "-impredicative-set" :: rem ->
         set_engagement Declarations.ImpredicativeSet; parse rem
 
@@ -299,7 +300,9 @@ let parse_args arglist =
     | "-coqlib" :: d :: rem -> Flags.coqlib_spec:=true; Flags.coqlib:=d; parse rem
     | "-coqlib" :: [] -> usage ()
 
-    | "-where" :: _ -> print_endline (Envars.coqlib Errors.error); exit (if !filter_opts then 2 else 0)
+    | "-where" :: _ ->
+        print_endline (Envars.coqlib ~fail:Errors.error);
+        exit (if !filter_opts then 2 else 0)
 
     | ("-config"|"--config") :: _ -> Usage.print_config (); exit (if !filter_opts then 2 else 0)
 

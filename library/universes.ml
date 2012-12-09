@@ -20,7 +20,7 @@ open Univ
 let new_univ_level =
   let n = ref 0 in 
     fun dp -> incr n; 
-      Univ.UniverseLevel.make dp !n
+      Univ.Level.make dp !n
 
 let fresh_level () = new_univ_level (Global.current_dirpath ())
 
@@ -34,17 +34,17 @@ let fresh_universe_instance (ctx, _) =
 
 let fresh_instance_from_context (vars, cst as ctx) =
   let inst = fresh_universe_instance ctx in
-  let subst = List.combine vars inst in
+  let subst = make_universe_subst vars (inst, cst) in
   let constraints = instantiate_univ_context subst ctx in
     (inst, subst), constraints
 
-let fresh_universe_set_instance (ctx, _) =
-  List.fold_left (fun s _ -> UniverseLSet.add (fresh_level ()) s) UniverseLSet.empty ctx
+let fresh_instance (ctx, _) =
+  List.fold_left (fun s _ -> LSet.add (fresh_level ()) s) LSet.empty ctx
 
 let fresh_instance_from (vars, cst as ctx) =
-  let ctx' = fresh_universe_set_instance ctx in
-  let inst = UniverseLSet.elements ctx' in
-  let subst = List.combine vars inst in
+  let ctx' = fresh_instance ctx in
+  let inst = LSet.elements ctx' in
+  let subst = make_universe_subst vars (inst, cst) in
   let constraints = instantiate_univ_context subst ctx in
     (inst, subst), (ctx', constraints)
 
@@ -88,6 +88,10 @@ let fresh_global_instance env gr =
 let constr_of_global gr =
   let c, ctx = fresh_global_instance (Global.env ()) gr in
     Global.add_constraints (snd ctx); c
+
+let fresh_global_or_constr_instance env = function
+  | IsConstr c -> c, Univ.empty_universe_context_set
+  | IsGlobal gr -> fresh_global_instance env gr
 
 open Declarations
 
@@ -135,7 +139,7 @@ let new_global_univ () =
 
 (** Simplification *)
 
-module LevelUnionFind = Unionfind.Make (Univ.UniverseLSet) (Univ.UniverseLMap)
+module LevelUnionFind = Unionfind.Make (Univ.LSet) (Univ.LMap)
 
 let remove_trivial_constraints cst =
   Constraint.fold (fun (l,d,r as cstr) nontriv ->
@@ -145,16 +149,16 @@ let remove_trivial_constraints cst =
     cst empty_constraint
 
 let add_list_map u t map = 
-  let l, d, r = UniverseLMap.split u map in
+  let l, d, r = LMap.split u map in
   let d' = match d with None -> [t] | Some l -> t :: l in
   let lr = 
-    UniverseLMap.merge (fun k lm rm -> 
+    LMap.merge (fun k lm rm -> 
       match lm with Some t -> lm | None ->
       match rm with Some t -> rm | None -> None) l r
-  in UniverseLMap.add u d' lr
+  in LMap.add u d' lr
 
 let find_list_map u map =
-  try UniverseLMap.find u map with Not_found -> []
+  try LMap.find u map with Not_found -> []
 
 module UF = LevelUnionFind
 type universe_full_subst = (universe_level * universe) list
@@ -167,7 +171,7 @@ let instantiate_univ_variables ucstrsl ucstrsr u (subst, cstrs) =
      the upper bound constraints *)
   let lbound = 
     try
-      let r = UniverseLMap.find u ucstrsr in
+      let r = LMap.find u ucstrsr in
       let lbound = List.fold_left (fun lbound (d, l) -> 
       if d = Le (* l <= ?u *) then (sup (Universe.make l) lbound)
       else (* l < ?u *) (assert (d = Lt); (sup (super (Universe.make l)) lbound)))
@@ -180,7 +184,7 @@ let instantiate_univ_variables ucstrsl ucstrsr u (subst, cstrs) =
   in
   let uinst, cstrs =
     try 
-      let l = UniverseLMap.find u ucstrsl in
+      let l = LMap.find u ucstrsl in
       let lbound, stay =
 	match lbound with
 	| None -> Universe.make u, true (** No lower bounds but some upper bounds, u has to stay *)
@@ -219,20 +223,20 @@ let instantiate_univ_variables ucstrsl ucstrsr u (subst, cstrs) =
   
 (** Precondition: flexible <= ctx *)
 let choose_canonical ctx flexible s =
-  let global = UniverseLSet.diff s ctx in
-  let flexible, rigid = UniverseLSet.partition (fun x -> UniverseLSet.mem x flexible) s in
+  let global = LSet.diff s ctx in
+  let flexible, rigid = LSet.partition (fun x -> LSet.mem x flexible) s in
     (** If there is a global universe in the set, choose it *)
-    if not (UniverseLSet.is_empty global) then
-      let canon = UniverseLSet.choose global in
-	canon, (UniverseLSet.remove canon global, rigid, flexible)
+    if not (LSet.is_empty global) then
+      let canon = LSet.choose global in
+	canon, (LSet.remove canon global, rigid, flexible)
     else (** No global in the equivalence class, choose a rigid one *)
-	if not (UniverseLSet.is_empty rigid) then
-	  let canon = UniverseLSet.choose rigid in
-	    canon, (global, UniverseLSet.remove canon rigid, flexible)
+	if not (LSet.is_empty rigid) then
+	  let canon = LSet.choose rigid in
+	    canon, (global, LSet.remove canon rigid, flexible)
 	else (** There are only flexible universes in the equivalence
 		 class, choose an arbitrary one. *)
-	  let canon = UniverseLSet.choose s in
-	    canon, (global, rigid, UniverseLSet.remove canon flexible)
+	  let canon = LSet.choose s in
+	    canon, (global, rigid, LSet.remove canon flexible)
 
 open Universe
 
@@ -276,6 +280,9 @@ let simplify_max_expressions csts subst =
     smartmap_universe_list remove_higher x
   in
     CList.smartmap (smartmap_pair id simplify_max) subst
+
+let subst_univs_subst u l s = 
+  LMap.add u l s
     
 let normalize_context_set (ctx, csts) us algs = 
   let uf = UF.create () in
@@ -288,14 +295,16 @@ let normalize_context_set (ctx, csts) us algs =
   let subst, eqs = List.fold_left (fun (subst, cstrs) s -> 
     let canon, (global, rigid, flexible) = choose_canonical ctx us s in
     (* Add equalities for globals which can't be merged anymore. *)
-    let cstrs = UniverseLSet.fold (fun g cst -> 
+    let cstrs = LSet.fold (fun g cst -> 
       Constraint.add (canon, Univ.Eq, g) cst) global cstrs 
     in
     (** Should this really happen? *)
-    let subst = List.map (fun f -> (f, canon)) 
-      (UniverseLSet.elements (UniverseLSet.union rigid flexible)) @ subst 
-    in (subst, cstrs))
-    ([], Constraint.empty) partition
+    let subst' = LSet.fold (fun f -> LMap.add f canon)
+      (LSet.union rigid flexible) LMap.empty
+    in 
+    let subst = LMap.union subst' subst in
+      (subst, cstrs))
+    (LMap.empty, Constraint.empty) partition
   in
   (* Noneqs is now in canonical form w.r.t. equality constraints, 
      and contains only inequality constraints. *)
@@ -304,8 +313,8 @@ let normalize_context_set (ctx, csts) us algs =
      mentionning other variables remain in noneqs. *)
   let noneqs, ucstrsl, ucstrsr = 
     Constraint.fold (fun (l,d,r as cstr) (noneq, ucstrsl, ucstrsr) -> 
-      let lus = UniverseLSet.mem l us 
-      and rus = UniverseLSet.mem r us
+      let lus = LSet.mem l us 
+      and rus = LSet.mem r us
       in
       let ucstrsl' = 
 	if lus then add_list_map l (d, r) ucstrsl
@@ -318,10 +327,10 @@ let normalize_context_set (ctx, csts) us algs =
 	if lus || rus then noneq 
 	else Constraint.add cstr noneq
       in (noneqs, ucstrsl', ucstrsr'))
-    noneqs (empty_constraint, UniverseLMap.empty, UniverseLMap.empty)
+    noneqs (empty_constraint, LMap.empty, LMap.empty)
   in
   (* Now we construct the instanciation of each variable. *)
-  let ussubst, noneqs = UniverseLSet.fold (fun u acc -> 
+  let ussubst, noneqs = LSet.fold (fun u acc -> 
     let u' = subst_univs_level subst u in
       (* Only instantiate the canonical variables *)
       if eq_levels u' u then
@@ -334,7 +343,7 @@ let normalize_context_set (ctx, csts) us algs =
       List.fold_left (fun (subst', usubst') (u, us) -> 
         let us' = subst_univs_universe subst' us in
 	  match universe_level us' with
-	  | Some l -> ((u, l) :: subst', usubst')
+	  | Some l -> (LMap.add u l (subst_univs_subst u l subst'), usubst')
 	  | None -> (** Couldn't find a level, keep the universe? *)
 	    (subst', (u, us') :: usubst'))
       (subst, []) ussubst
@@ -371,16 +380,16 @@ let normalize_context_set (ctx, csts) us algs =
     constraints Constraint.empty
   in
   let usalg, usnonalg = 
-    List.partition (fun (u, _) -> UniverseLSet.mem u algs) ussubst
+    List.partition (fun (u, _) -> LSet.mem u algs) ussubst
   in
   let subst = 
-    usalg @
-    CList.map_filter (fun (u, v) ->
-      if eq_levels u v then None
-      else Some (u, Universe.make (subst_univs_level subst v)))
-      subst
+    LMap.union (Univ.LMap.of_list usalg)
+      (LMap.fold (fun u v acc ->
+        if eq_levels u v then acc
+	else LMap.add u (Universe.make (subst_univs_level subst v)) acc)
+       subst LMap.empty)
   in
-  let ctx' = List.fold_left (fun ctx' (u, _) -> UniverseLSet.remove u ctx') ctx subst in
+  let ctx' = LSet.diff ctx (LMap.universes subst) in
   let constraints' =
     (** Residual constraints that can't be normalized further. *)
     List.fold_left (fun csts (u, v) -> 
@@ -446,19 +455,52 @@ let subst_univs_full_constr subst c =
   nf_evars_and_full_universes_local (fun _ -> None) subst c
 
 let fresh_universe_context_set_instance (univs, cst) =
-  let univs',subst = UniverseLSet.fold
+  let univs',subst = LSet.fold
     (fun u (univs',subst) ->
       let u' = fresh_level () in
-	(UniverseLSet.add u' univs', (u,u') :: subst))
-    univs (UniverseLSet.empty, [])
+	(LSet.add u' univs', LMap.add u u' subst))
+    univs (LSet.empty, LMap.empty)
   in
   let cst' = subst_univs_constraints subst cst in
     subst, (univs', cst')
 
 (* let fresh_universe_context_set_instance (univs, cst) = *)
-(*   UniverseLSet.fold *)
+(*   LSet.fold *)
 (*     (fun u (subst) -> *)
 (*       let u' = fresh_level () in *)
 (* 	(u,u') :: subst) *)
 (*     univs [] *)
     
+
+
+let normalize_univ_variable ectx b =
+  let rec aux cur =
+    try let res = Univ.LMap.find cur !ectx in
+	  match res with
+	  | Some b -> 
+	    (match aux b with
+	    | Some _ as b' -> ectx := Univ.LMap.add cur b' !ectx; b'
+	    | None -> res)
+	  | None -> None
+    with Not_found -> None
+  in aux b
+	  
+let normalize_univ_variables ctx = 
+  let ectx = ref ctx in
+  let undef, def, subst = 
+    Univ.LMap.fold (fun u _ (undef, def, subst) -> 
+      let res = normalize_univ_variable ectx u in
+	match res with
+	| None -> (Univ.LSet.add u undef, def, subst)
+	| Some b -> (undef, Univ.LSet.add u def, Univ.LMap.add u b subst))
+    ctx (Univ.LSet.empty, Univ.LSet.empty, Univ.LMap.empty)
+  in !ectx, undef, def, subst
+
+
+let pr_universe_body = function
+  | None -> mt ()
+  | Some v -> str" := " ++ Univ.Level.pr v
+
+type universe_opt_subst = universe_level option universe_map
+
+let pr_universe_opt_subst = Univ.LMap.pr pr_universe_body

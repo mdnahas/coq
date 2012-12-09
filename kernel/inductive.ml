@@ -53,7 +53,7 @@ let inductive_params (mib,_) = mib.mind_nparams
 let make_inductive_subst mib u =
   if mib.mind_polymorphic then 
     make_universe_subst u mib.mind_universes
-  else []
+  else Univ.empty_subst
 
 let instantiate_inductive_constraints mib subst =
   if mib.mind_polymorphic then
@@ -195,6 +195,21 @@ let cons_subst u su subst =
 exception SingletonInductiveBecomesProp of identifier
 
 (* Type of an inductive type *)
+
+let type_of_inductive_gen env ((mib,mip),u) =
+  let subst = make_inductive_subst mib u in
+    (subst_univs_constr subst mip.mind_arity.mind_user_arity, subst)
+
+let type_of_inductive env pind = 
+  fst (type_of_inductive_gen env pind)
+
+let constrained_type_of_inductive env ((mib,mip),u as pind) =
+  let ty, subst = type_of_inductive_gen env pind in
+  let cst = instantiate_inductive_constraints mib subst in
+    (ty, cst)
+
+let type_of_inductive_knowing_parameters env ?(polyprop=false) mip args = 
+  type_of_inductive env mip
 
 let type_of_inductive_gen env ((mib,mip),u) =
   let subst = make_inductive_subst mib u in

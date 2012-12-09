@@ -21,8 +21,6 @@ val new_univ : Names.dir_path -> universe
 val new_Type : Names.dir_path -> types
 val new_Type_sort : Names.dir_path -> sorts
 
-val fresh_universe_instance : universe_context -> universe_list
-
 (** Build a fresh instance for a given context, its associated substitution and 
     the instantiated constraints. *)
 
@@ -47,6 +45,9 @@ val fresh_constructor_instance : env -> constructor ->
 val fresh_global_instance : env -> Globnames.global_reference -> 
   constr in_universe_context_set
 
+val fresh_global_or_constr_instance : env -> Globnames.global_reference_or_constr -> 
+  constr in_universe_context_set
+
 val extend_context : 'a in_universe_context_set -> universe_context_set -> 
   'a in_universe_context_set
 
@@ -65,9 +66,9 @@ module UF : Unionfind.PartitionSig with type elt = universe_level
 
 val instantiate_univ_variables : 
   (Univ.constraint_type * Univ.universe_level) list
-  Univ.UniverseLMap.t ->
+  Univ.LMap.t ->
   (Univ.constraint_type * Univ.universe_level) list
-  Univ.UniverseLMap.t ->
+  Univ.LMap.t ->
   universe_level ->
   (UF.elt * Univ.universe) list * Univ.constraints ->
   (UF.elt * Univ.universe) list * Univ.constraints
@@ -81,6 +82,8 @@ val normalize_context_set : universe_context_set ->
   universe_set (* univ variables that can be substituted by algebraics *) -> 
   universe_full_subst in_universe_context_set
 
+val normalize_univ_variables : universe_level option universe_map -> 
+  universe_level option universe_map * universe_set * universe_set * universe_subst
 
 (** Create a fresh global in the global environment, shouldn't be done while
     building polymorphic values as the constraints are added to the global
@@ -104,3 +107,7 @@ val subst_univs_full_constr : universe_full_subst -> constr -> constr
     Useful to make tactics that manipulate constrs in universe contexts polymorphic. *)
 val fresh_universe_context_set_instance : universe_context_set -> 
   universe_subst * universe_context_set
+
+type universe_opt_subst = universe_level option universe_map
+
+val pr_universe_opt_subst : universe_opt_subst -> Pp.std_ppcmds

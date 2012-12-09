@@ -102,8 +102,8 @@ type hint_db_name = string
 type hint_db = Hint_db.t
 
 type hints_entry =
-  | HintsResolveEntry of (int option * bool * hints_path_atom * global_reference) list
-  | HintsImmediateEntry of (hints_path_atom * global_reference) list
+  | HintsResolveEntry of (int option * bool * hints_path_atom * global_reference_or_constr) list
+  | HintsImmediateEntry of (hints_path_atom * global_reference_or_constr) list
   | HintsCutEntry of hints_path
   | HintsUnfoldEntry of evaluable_global_reference list
   | HintsTransparencyEntry of evaluable_global_reference list * bool
@@ -164,7 +164,7 @@ val make_apply_entry :
 
 val make_resolves :
   env -> evar_map -> bool * bool * bool -> int option -> ?name:hints_path_atom -> 
-  constr_or_reference -> hint_entry list
+  global_reference_or_constr -> hint_entry list
 
 (** [make_resolve_hyp hname htyp].
    used to add an hypothesis to the local hint database;

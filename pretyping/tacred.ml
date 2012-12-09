@@ -84,8 +84,9 @@ let evaluable_reference_eq r1 r2 = match r1, r2 with
   Int.equal e1 e2 && Array.equal eq_constr ctx1 ctx2
 | _ -> false
 
-let mkEvalRef = function
-  | EvalConst cst -> (Universes.constr_of_global (ConstRef cst))
+let mkEvalRef ref u =
+  match ref with
+  | EvalConst cst -> mkConstU (cst,u)
   | EvalVar id -> mkVar id
   | EvalRel n -> mkRel n
   | EvalEvar ev -> mkEvar ev
@@ -353,7 +354,7 @@ let reference_eval sigma env = function
 
 let x = Name (id_of_string "x")
 
-let make_elim_fun (names,(nbfix,lv,n)) largs =
+let make_elim_fun (names,(nbfix,lv,n)) u largs =
   let lu = List.firstn n largs in
   let p = List.length lv in
   let lyi = List.map fst lv in
@@ -368,7 +369,7 @@ let make_elim_fun (names,(nbfix,lv,n)) largs =
     match names.(i) with
       | None -> None
       | Some (minargs,ref) ->
-          let body = applistc (mkEvalRef ref) la in
+          let body = applistc (mkEvalRef ref u) la in
           let g =
             List.fold_left_i (fun q (* j = n+1-q *) c (ij,tij) ->
               let subst = List.map (lift (-q)) (List.firstn (n-ij) la) in
@@ -730,7 +731,7 @@ let rec red_elim_const env sigma ref u largs =
     | EliminationFix (min,minfxargs,infos) when nargs >= min ->
 	let c = reference_value sigma env ref u in
 	let d, lrest = whd_nothing_for_iota env sigma (applist(c,largs)) in
-	let f = make_elim_fun ([|Some (minfxargs,ref)|],infos) largs in
+	let f = make_elim_fun ([|Some (minfxargs,ref)|],infos) u largs in
 	let whfun = whd_construct_stack env sigma in
 	(match reduce_fix_use_function env sigma f whfun (destFix d) lrest with
 	   | NotReducible -> raise Redelimination
@@ -745,7 +746,7 @@ let rec red_elim_const env sigma ref u largs =
 	    descend (destEvalRefU c') lrest in
 	let (_, midargs as s) = descend (ref,u) largs in
 	let d, lrest = whd_nothing_for_iota env sigma (applist s) in
-	let f = make_elim_fun refinfos midargs in
+	let f = make_elim_fun refinfos u midargs in
 	let whfun = whd_construct_stack env sigma in
 	(match reduce_fix_use_function env sigma f whfun (destFix d) lrest with
 	   | NotReducible -> raise Redelimination
@@ -1082,7 +1083,10 @@ let abstract_scheme env sigma (locc,a) c =
   if occur_meta a then
     mkLambda (na,ta,c)
   else
-    mkLambda (na,ta,subst_closed_term_occ locc a c)
+    (* It is ok to forget about universes here,
+       typing will ensure this is correct. *)
+    let c', univs = subst_closed_term_univs_occ locc a c in
+      mkLambda (na,ta,c') 
 
 let pattern_occs loccs_trm env sigma c =
   let abstr_trm = List.fold_right (abstract_scheme env sigma) loccs_trm c in

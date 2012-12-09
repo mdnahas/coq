@@ -63,8 +63,7 @@ let print_usage_channel co command =
 \n  -dump-glob f           dump globalizations in file f (to be used by coqdoc)\
 \n  -with-geoproof (yes|no) to (de)activate special functions for Geoproof within Coqide (default is yes)\
 \n  -impredicative-set     set sort Set impredicative\
-\n  -warn-universe-inconsistency  turn universe inconsistencies into warnings\
-\n  -relevant-equality     make proofs of equality informative\
+\n  -parameters-matter     levels of parameters contribute to the level of inductives\
 \n  -force-load-proofs     load opaque proofs in memory initially\
 
 \n  -lazy-load-proofs      load opaque proofs in memory by necessity (default)\
@@ -96,7 +95,7 @@ let print_usage_coqc () =
 
 let print_config () =
   if Coq_config.local then Printf.printf "LOCAL=1\n" else Printf.printf "LOCAL=0\n";
-  Printf.printf "COQLIB=%s/\n" (Envars.coqlib Errors.error);
+  Printf.printf "COQLIB=%s/\n" (Envars.coqlib ~fail:Errors.error);
   Printf.printf "DOCDIR=%s/\n" (Envars.docdir ());
   Printf.printf "OCAMLDEP=%s\n" Coq_config.ocamldep;
   Printf.printf "OCAMLC=%s\n" Coq_config.ocamlc;

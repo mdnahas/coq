@@ -74,6 +74,10 @@ module ExtRefOrdered : sig
   val compare : t -> t -> int
 end
 
+type global_reference_or_constr = 
+  | IsGlobal of global_reference
+  | IsConstr of constr
+
 (** {6 Temporary function to brutally form kernel names from section paths } *)
 
 val encode_mind : dir_path -> identifier -> mutual_inductive

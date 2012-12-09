@@ -20,7 +20,7 @@ open Locus
 let print_sort = function
   | Prop Pos -> (str "Set")
   | Prop Null -> (str "Prop")
-  | Type u -> (str "Type(" ++ Univ.pr_uni u ++ str ")")
+  | Type u -> (str "Type(" ++ Univ.Universe.pr u ++ str ")")
 
 let pr_sort_family = function
   | InSet -> (str "Set")
@@ -35,7 +35,7 @@ let pr_con sp = str(string_of_con sp)
 
 let pr_puniverses p u = 
   if u = [] then p 
-  else p ++ str"(*" ++ prlist_with_sep spc Univ.pr_uni_level u ++ str"*)"
+  else p ++ str"(*" ++ prlist_with_sep spc Univ.Level.pr u ++ str"*)"
 
 let rec pr_constr c = match kind_of_term c with
   | Rel n -> str "#"++int n
@@ -549,9 +549,10 @@ let collect_vars c =
 (* Tests whether [m] is a subterm of [t]:
    [m] is appropriately lifted through abstractions of [t] *)
 
-let dependent_main noevar m t =
+let dependent_main noevar univs m t =
+  let eqc x y = if univs then fst (eq_constr_univs x y) else eq_constr x y in
   let rec deprec m t =
-    if eq_constr m t then
+    if eqc m t then
       raise Occur
     else
       match kind_of_term m, kind_of_term t with
@@ -566,8 +567,11 @@ let dependent_main noevar m t =
   in
   try deprec m t; false with Occur -> true
 
-let dependent = dependent_main false
-let dependent_no_evar = dependent_main true
+let dependent = dependent_main false false
+let dependent_no_evar = dependent_main true false
+
+let dependent_univs = dependent_main false true
+let dependent_univs_no_evar = dependent_main true true
 
 let count_occurrences m t =
   let n = ref 0 in
@@ -763,6 +767,14 @@ let make_eq_test c = {
   last_found = None
 } 
 
+let make_eq_univs_test c = {
+  match_fun = (fun c' -> let b, cst = eq_constr_univs c c' in 
+			   if b then cst else raise NotUnifiable);
+  merge_fun = Univ.Constraint.union;
+  testing_state = Univ.Constraint.empty;
+  last_found = None
+} 
+
 let subst_closed_term_occ_gen occs pos c t =
   subst_closed_term_occ_gen_modulo occs (make_eq_test c) None pos t
 
@@ -770,6 +782,13 @@ let subst_closed_term_occ occs c t =
   proceed_with_occurrences
     (fun occ -> subst_closed_term_occ_gen occs occ c)
     occs t
+
+let subst_closed_term_univs_occ occs c t =
+  let test = make_eq_univs_test c in
+  let t' = proceed_with_occurrences
+    (fun occ -> subst_closed_term_occ_gen_modulo occs test None occ)
+    occs t
+  in t', test.testing_state
 
 let subst_closed_term_occ_modulo occs test cl t =
   proceed_with_occurrences

@@ -33,6 +33,7 @@ let share = ref true
 (* Profiling *)
 let beta = ref 0
 let delta = ref 0
+let eta = ref 0
 let zeta = ref 0
 let evar = ref 0
 let iota = ref 0
@@ -44,8 +45,9 @@ let reset () =
 
 let stop() =
   msg_debug (str "[Reds: beta=" ++ int !beta ++ str" delta=" ++ int !delta ++
-	 str" zeta=" ++ int !zeta ++ str" evar=" ++ int !evar ++
-         str" iota=" ++ int !iota ++ str" prune=" ++ int !prune ++ str"]")
+	 str " eta=" ++ int !eta ++ str" zeta=" ++ int !zeta ++ str" evar=" ++
+	 int !evar ++ str" iota=" ++ int !iota ++ str" prune=" ++ int !prune ++
+	 str"]")
 
 let incr_cnt red cnt =
   if red then begin
@@ -74,6 +76,7 @@ module type RedFlagsSig = sig
   type red_kind
   val fBETA : red_kind
   val fDELTA : red_kind
+  val fETA : red_kind
   val fIOTA : red_kind
   val fZETA : red_kind
   val fCONST : constant -> red_kind
@@ -95,14 +98,16 @@ module RedFlags = (struct
   type reds = {
     r_beta : bool;
     r_delta : bool;
+    r_eta : bool;
     r_const : transparent_state;
     r_zeta : bool;
     r_iota : bool }
 
-  type red_kind = BETA | DELTA | IOTA | ZETA
+  type red_kind = BETA | DELTA | ETA | IOTA | ZETA
 	      | CONST of constant | VAR of identifier
   let fBETA = BETA
   let fDELTA = DELTA
+  let fETA = ETA
   let fIOTA = IOTA
   let fZETA = ZETA
   let fCONST kn  = CONST kn
@@ -110,12 +115,14 @@ module RedFlags = (struct
   let no_red = {
     r_beta = false;
     r_delta = false;
+    r_eta = false;
     r_const = all_opaque;
     r_zeta = false;
     r_iota = false }
 
   let red_add red = function
     | BETA -> { red with r_beta = true }
+    | ETA -> { red with r_eta = true }
     | DELTA -> { red with r_delta = true; r_const = all_transparent }
     | CONST kn ->
 	let (l1,l2) = red.r_const in
@@ -128,6 +135,7 @@ module RedFlags = (struct
 
   let red_sub red = function
     | BETA -> { red with r_beta = false }
+    | ETA -> { red with r_eta = false }
     | DELTA -> { red with r_delta = false }
     | CONST kn ->
  	let (l1,l2) = red.r_const in
@@ -145,6 +153,7 @@ module RedFlags = (struct
 
   let red_set red = function
     | BETA -> incr_cnt red.r_beta beta
+    | ETA -> incr_cnt red.r_eta eta
     | CONST kn ->
 	let (_,l) = red.r_const in
 	let c = Cpred.mem kn l in
@@ -185,8 +194,8 @@ let unfold_red kn =
  *  * i_repr is the function to get the representation from the current
  *         state of the cache and the body of the constant. The result
  *         is stored in the table.
- *  * i_rels = (4,[(1,c);(3,d)]) means there are 4 free rel variables
- *    and only those with index 1 and 3 have bodies which are c and d resp.
+ *  * i_rels is the array of free rel variables together with their optional
+ *    body
  *  * i_vars is the list of _defined_ named variables.
  *
  * ref_value_cache searchs in the tab, otherwise uses i_repr to
@@ -199,8 +208,8 @@ let unfold_red kn =
 
 type table_key = constant puniverses tableKey
 
-let eq_pconstant_key (c,_) (c',_) =
-  eq_constant_key c c'
+let eq_pconstant_key (c,u) (c',u') =
+  eq_constant_key c c' && Univ.LList.eq u u'
   
 module IdKeyHash =
 struct
@@ -218,7 +227,7 @@ type 'a infos = {
   i_repr : 'a infos -> constr -> 'a;
   i_env : env;
   i_sigma : existential -> constr option;
-  i_rels : int * (int * constr) list;
+  i_rels : constr option array;
   i_vars : (identifier * constr) list;
   i_tab : 'a KeyTable.t }
 
@@ -232,7 +241,13 @@ let ref_value_cache info ref =
     let body =
       match ref with
 	| RelKey n ->
-	    let (s,l) = info.i_rels in lift n (List.assoc (s-n) l)
+            let len = Array.length info.i_rels in
+            let i = n - 1 in
+            let () = if i < 0 || len <= i then raise Not_found in
+            begin match Array.unsafe_get info.i_rels i with
+            | None -> raise Not_found
+            | Some t -> lift n t
+            end
 	| VarKey id -> List.assoc id info.i_vars
 	| ConstKey cst -> constant_value_in info.i_env cst
     in
@@ -259,12 +274,15 @@ let defined_vars flags env =
 
 let defined_rels flags env =
 (*  if red_local_const (snd flags) then*)
-  Sign.fold_rel_context
-      (fun (id,b,t) (i,subs) ->
-	 match b with
-	   | None -> (i+1, subs)
-	   | Some body -> (i+1, (i,body) :: subs))
-      (rel_context env) ~init:(0,[])
+  let ctx = rel_context env in
+  let len = List.length ctx in
+  let ans = Array.make len None in
+  let iter i (_, b, _) = match b with
+  | None -> ()
+  | Some _ -> Array.unsafe_set ans i b
+  in
+  let () = List.iteri iter ctx in
+  ans
 (*  else (0,[])*)
 
 let create mk_cl flgs env evars =

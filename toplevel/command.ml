@@ -342,10 +342,8 @@ let interp_mutual_inductive (paramsl,indl) notations poly finite =
   let fullarities = List.map (fun (c, _) -> it_mkProd_or_LetIn c ctx_params) arities in
   let env_ar = push_types env0 indnames fullarities in
   let env_ar_params = push_rel_context ctx_params env_ar in
-  let paramlev = 
-    if Indtypes.is_relevant_equality () then params_level env0 ctx_params 
-    else Univ.type0m_univ 
-  in
+  let paramlev = Univ.type0m_univ in
+
   (* Compute interpretation metadatas *)
   let indimpls = List.map (fun (_, impls) -> userimpls @ 
     lift_implicits (rel_context_nhyps ctx_params) impls) arities in
