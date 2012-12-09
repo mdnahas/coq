@@ -193,9 +193,6 @@ let parse_args arglist =
     | "-impredicative-set" :: rem ->
         set_engagement Declarations.ImpredicativeSet; parse rem
 
-    | "-relevant-equality" :: rem ->
-        Indtypes.enforce_relevant_equality (); parse rem
-
     | ("-I"|"-include") :: d :: "-as" :: p :: rem -> set_include d p; parse rem
     | ("-I"|"-include") :: d :: "-as" :: [] -> usage ()
     | ("-I"|"-include") :: d :: rem -> set_default_include d; parse rem

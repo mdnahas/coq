@@ -44,14 +44,6 @@ open Locus
 (*            The Type of Constructions Autotactic Hints                    *)
 (****************************************************************************)
 
-type constr_or_reference = 
-  | IsConstr of constr
-  | IsReference of global_reference
-
-let constr_of_constr_or_ref env = function
-  | IsConstr c -> c, Univ.empty_universe_context_set
-  | IsReference r -> Universes.fresh_global_instance env r
-
 type 'a auto_tactic =
   | Res_pf     of 'a (* Hint Apply *)
   | ERes_pf    of 'a (* Hint EApply *)

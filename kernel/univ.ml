@@ -223,11 +223,6 @@ let universe_level = Universe.level
 
 let type1_univ = Max ([], [Level.Set])
 
-(* When typing [Prop] and [Set], there is no constraint on the level,
-   hence the definition of [type1_univ], the type of [Prop] *)
-
-let type1_univ = Max ([], [UniverseLevel.Set])
-
 (* Returns the formal universe that lies juste above the universe variable u.
    Used to type the sort u. *)
 let super = function

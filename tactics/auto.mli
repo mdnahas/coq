@@ -23,13 +23,6 @@ open Pp
 
 (** Auto and related automation tactics *)
 
-type constr_or_reference = 
-  | IsConstr of constr
-  | IsReference of global_reference
-
-val constr_of_constr_or_ref : env -> constr_or_reference -> 
-  constr * Univ.universe_context_set
-
 type 'a auto_tactic =
   | Res_pf     of 'a (* Hint Apply *)
   | ERes_pf    of 'a (* Hint EApply *)
