@@ -150,11 +150,6 @@ let ppuniverse_opt_subst l = pp (Universes.pr_universe_opt_subst l)
 let ppuniverse_full_subst l = pp (Univ.pr_universe_full_subst l)
 let ppevar_universe_context l = pp (Evd.pr_evar_universe_context l)
 
-let ppuniverse_set l = pp (pr_universe_set l)
-let ppuniverse_list l = pp (pr_universe_list l)
-let ppuniverse_context l = pp (pr_universe_context l)
-let ppuniverse_context_set l = pp (pr_universe_context_set l)
-
 let ppconstraints c = pp (pr_constraints c)
 
 let ppenv e = pp
