@@ -102,6 +102,13 @@ module LMap = struct
       | Some _, _ -> l
       | _, _ -> r) l r
 
+  let subst_union l r = 
+    merge (fun k l r -> 
+      match l, r with
+      | Some (Some _), _ -> l
+      | Some None, None -> l
+      | _, _ -> r) l r
+
   let elements = bindings
   let of_set s d = 
     LSet.fold (fun u -> add u d) s
@@ -723,6 +730,9 @@ let pr_universe_context_set (ctx, cst) =
 
 let pr_universe_full_subst = 
   LMap.pr (fun u -> str" := " ++ Universe.pr u ++ spc ())
+
+let pr_universe_subst = 
+  LMap.pr (fun u -> str" := " ++ Level.pr u ++ spc ())
 
 (** Constraints *)
 let empty_constraint = Constraint.empty

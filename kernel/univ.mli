@@ -86,6 +86,8 @@ sig
 
   (** Favorizes the bindings in the first map. *)
   val union : 'a t -> 'a t -> 'a t
+  val subst_union : 'a option t -> 'a option t -> 'a option t
+
   val elements : 'a t -> (universe_level * 'a) list
   val of_list : (universe_level * 'a) list -> 'a t
   val of_set : universe_set -> 'a -> 'a t
@@ -291,6 +293,7 @@ val pr_constraints : constraints -> Pp.std_ppcmds
 val pr_universe_list : universe_list -> Pp.std_ppcmds
 val pr_universe_context : universe_context -> Pp.std_ppcmds
 val pr_universe_context_set : universe_context_set -> Pp.std_ppcmds
+val pr_universe_subst : universe_subst -> Pp.std_ppcmds
 val pr_universe_full_subst : universe_full_subst -> Pp.std_ppcmds
 
 (** {6 Dumping to a file } *)

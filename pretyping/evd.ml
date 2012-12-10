@@ -235,7 +235,7 @@ let is_empty_evar_universe_context ctx =
 let union_evar_universe_context ctx ctx' =
   { uctx_local = Univ.union_universe_context_set ctx.uctx_local ctx'.uctx_local;
     uctx_univ_variables = 
-     Univ.LMap.union ctx.uctx_univ_variables ctx'.uctx_univ_variables;
+     Univ.LMap.subst_union ctx.uctx_univ_variables ctx'.uctx_univ_variables;
     uctx_univ_algebraic = 
      Univ.LSet.union ctx.uctx_univ_algebraic ctx'.uctx_univ_algebraic;
     uctx_universes = (*FIXME *) ctx.uctx_universes }
@@ -275,7 +275,10 @@ let process_constraints vars local cstrs =
 	    (vars', local)
 	else
 	  let vars' = set_univ_variables vars eqs can in
-	    (vars', Univ.Constraint.add cstr local)
+	  let local' = 
+	    if Univ.Level.eq l' r' then local 
+	    else Univ.Constraint.add (l',d,r') local
+	  in (vars', local')
     else (vars, Univ.Constraint.add cstr local))
   cstrs (vars, local)
 
@@ -629,7 +632,7 @@ let merge_uctx rigid uctx ctx' =
     match rigid with
     | UnivRigid -> uctx
     | UnivFlexible b ->
-      let uvars' = Univ.LMap.union uctx.uctx_univ_variables 
+      let uvars' = Univ.LMap.subst_union uctx.uctx_univ_variables 
 	(Univ.LMap.of_set (fst ctx') None) in
 	if b then
 	  { uctx with uctx_univ_variables = uvars';
@@ -844,11 +847,11 @@ let normalize_evar_universe_context_variables uctx =
   let ctx_local = subst_univs_context_with_def def subst uctx.uctx_local in
     subst, { uctx with uctx_local = ctx_local; uctx_univ_variables = normalized_variables }
     
-let normalize_evar_universe_context uctx = 
+let normalize_evar_universe_context uctx subst = 
   let undef, _ = Univ.LMap.partition (fun i b -> b = None) uctx.uctx_univ_variables in
   let undef = Univ.LMap.universes undef in
   let (subst', us') = 
-    Universes.normalize_context_set uctx.uctx_local undef
+    Universes.normalize_context_set uctx.uctx_local subst undef
       uctx.uctx_univ_algebraic
   in 
   let uctx' = { uctx with uctx_local = us'; uctx_univ_variables = Univ.LMap.empty } in
@@ -865,10 +868,9 @@ let normalize_univ_level fullsubst u =
   
 let nf_constraints ({evars = (sigma, uctx)} as d) = 
   let subst, uctx' = normalize_evar_universe_context_variables uctx in
-  let subst', uctx' = normalize_evar_universe_context uctx' in
+  let subst', uctx' = normalize_evar_universe_context uctx' subst in
   let evd' = {d with evars = (sigma, uctx')} in
-  let subst'' = Univ.LMap.map (normalize_univ_level subst') subst in
-    evd', Univ.LMap.union subst' subst''
+    evd', subst'
 
 (* Conversion w.r.t. an evar map and its local universes. *)
 
@@ -982,6 +984,7 @@ let meta_with_name evd id =
 
 let meta_merge evd1 evd2 =
   {evd2 with
+    evars = (fst evd2.evars, union_evar_universe_context (snd evd2.evars) (snd evd1.evars));
     metas = List.fold_left (fun m (n,v) -> Metamap.add n v m)
       evd2.metas (metamap_to_list evd1.metas) }
 
