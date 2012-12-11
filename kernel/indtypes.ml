@@ -298,7 +298,7 @@ let typecheck_inductive env ctx mie =
   (* Compute/check the sorts of the inductive types *)
   let ind_min_levels = inductive_levels arities inds in
   let inds, cst =
-    Array.fold_map2' (fun ((id,full_arity,ind_level),cn,info,lc,_) lev cst ->
+    Array.fold_map2' (fun ((id,full_arity,ar_level),cn,info,lc,_) lev cst ->
       let sign, s = dest_arity env full_arity in
       let u = Term.univ_of_sort s in
       let lev = match ar_level with 
