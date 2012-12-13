@@ -71,9 +71,9 @@ let e_nf_evars_and_universes evdref =
 
 let nf_evar_map_universes evm =
   let evm, subst = Evd.nf_constraints evm in
-    if Univ.LMap.is_empty subst then evm, fun c -> c
+    if Univ.LMap.is_empty subst then evm, nf_evar evm
     else
-      let f = Universes.subst_univs_full_constr subst in
+      let f = nf_evars_universes evm subst in
 	Evd.map (map_evar_info f) evm, f
 
 let nf_named_context_evar sigma ctx =
@@ -2103,9 +2103,6 @@ let define_evar_as_sort evd (ev,args) =
 
 let judge_of_new_Type evd =
   let evd', s = new_univ_variable univ_rigid evd in
-  (* let evd', s' = new_univ_variable evd in *)
-  (* let ss = mkSort (Type s) and ss' = mkSort (Type s') in *)
-  (* let evd' = set_leq_sort evd' (Type (Univ.super s)) (Type s') in *)
     evd', { uj_val = mkSort (Type s); uj_type = mkSort (Type (Univ.super s)) }
 
 (* Propagation of constraints through application and abstraction:
