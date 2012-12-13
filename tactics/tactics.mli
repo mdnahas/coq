@@ -54,6 +54,8 @@ val mutual_fix      :
 val fix             : identifier option -> int -> tactic
 val mutual_cofix    : identifier -> (identifier * constr) list -> int -> tactic
 val cofix           : identifier option -> tactic
+val convert         : constr -> constr -> tactic
+val convert_leq     : constr -> constr -> tactic
 
 (** {6 Introduction tactics. } *)
 
