@@ -72,14 +72,13 @@ let interp_definition bl p red_option c ctypopt =
   let env = Global.env() in
   let evdref = ref (Evd.from_env env) in
   let impls, ((env_bl, ctx), imps1) = interp_context_evars evdref env bl in
-  let subst = evd_comb0 Evd.nf_univ_variables evdref in
-  let ctx = Sign.map_rel_context (Term.subst_univs_constr subst) ctx in
-  let env_bl = push_rel_context ctx env in
-  (* let _ = evdref := Evd.abstract_undefined_variables !evdref in *)
   let nb_args = List.length ctx in
   let imps,ce =
     match ctypopt with
       None ->
+        let subst = evd_comb0 Evd.nf_univ_variables evdref in
+	let ctx = Sign.map_rel_context (Term.subst_univs_constr subst) ctx in
+	let env_bl = push_rel_context ctx env in
 	let c, imps2 = interp_constr_evars_impls ~impls ~evdref ~fail_evar:false env_bl c in
 	let nf = e_nf_evars_and_universes evdref in
 	let body = nf (it_mkLambda_or_LetIn c ctx) in
@@ -92,6 +91,10 @@ let interp_definition bl p red_option c ctypopt =
           const_entry_opaque = false }
     | Some ctyp ->
 	let ty, impsty = interp_type_evars_impls ~impls ~evdref ~fail_evar:false env_bl ctyp in
+	let subst = evd_comb0 Evd.nf_univ_variables evdref in
+	let ctx = Sign.map_rel_context (Term.subst_univs_constr subst) ctx in
+	let env_bl = push_rel_context ctx env in
+	let _ = evdref := Evd.abstract_undefined_variables !evdref in
 	let c, imps2 = interp_casted_constr_evars_impls ~impls ~evdref
 	  ~fail_evar:false env_bl c ty in
 	let nf = e_nf_evars_and_universes evdref in 
@@ -337,8 +340,8 @@ let inductive_levels env evdref arities inds =
     (Array.of_list cstrs_levels) 
   in
   let evd =
-    CList.fold_left3 (fun evd cu (ctx,iu) len ->
-      if is_impredicative env iu then
+    CList.fold_left3 (fun evd cu (ctx,du) len ->
+      if is_impredicative env du then
 	(** Any product is allowed here. *)
 	evd
       else (** If in a predicative sort, or asked to infer the type,
@@ -351,17 +354,23 @@ let inductive_levels env evdref arities inds =
 	  (** Indices contribute. *)
 	  if Indtypes.is_indices_matter () then (
 	    let ilev = sign_level env !evdref ctx in
-	      Evd.set_leq_sort evd (Type ilev) iu)
+	      Evd.set_leq_sort evd (Type ilev) du)
 	  else evd
 	in
         (** Constructors contribute. *)
-	let evd = Evd.set_leq_sort evd (Type cu) iu in
+	let evd = 
+	  if is_set_sort du then
+	    if not (Evd.check_leq evd cu Univ.type0_univ) then 
+	      raise (Indtypes.InductiveError Indtypes.LargeNonPropInductiveNotInType)
+	    else evd
+	  else Evd.set_leq_sort evd (Type cu) du 
+	in
 	let evd = 
 	  if len >= 2 && Univ.is_type0m_univ cu then 
 	   (** "Polymorphic" type constraint and more than one constructor, 
 	       should not land in Prop. Add constraint only if it would
 	       land in Prop directly (no informative arguments as well). *)
-	    Evd.set_leq_sort evd (Prop Pos) iu
+	    Evd.set_leq_sort evd (Prop Pos) du
 	  else evd
 	in evd)
     !evdref (Array.to_list levels') destarities sizes
@@ -407,11 +416,16 @@ let interp_mutual_inductive (paramsl,indl) notations poly finite =
   let evd = consider_remaining_unif_problems env_params !evdref in
   evdref := Typeclasses.resolve_typeclasses ~filter:Typeclasses.no_goals ~fail:true env_params evd;
   (* Compute renewed arities *)
-  let arities = inductive_levels env_ar_params evdref arities constructors in
-  let nf = e_nf_evars_and_universes evdref in 
-  let constructors = List.map (fun (idl,cl,impsl) -> (idl,List.map nf cl,impsl)) constructors in
-  let ctx_params = Sign.map_rel_context nf ctx_params in
+  let nf = e_nf_evars_and_universes evdref in
   let arities = List.map nf arities in
+  let constructors = List.map (fun (idl,cl,impsl) -> (idl,List.map nf cl,impsl)) constructors in
+  let _ = List.iter (fun ty -> make_conclusion_flexible evdref ty) arities in
+  let arities = inductive_levels env_ar_params evdref arities constructors in
+  let nf' = e_nf_evars_and_universes evdref in
+  let nf x = nf' (nf x) in
+  let arities = List.map nf' arities in
+  let constructors = List.map (fun (idl,cl,impsl) -> (idl,List.map nf' cl,impsl)) constructors in
+  let ctx_params = Sign.map_rel_context nf ctx_params in
   let evd = !evdref in
   List.iter (check_evars env_params Evd.empty evd) arities;
   Sign.iter_rel_context (check_evars env0 Evd.empty evd) ctx_params;

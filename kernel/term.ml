@@ -77,8 +77,12 @@ let sorts_ord s1 s2 =
   | Type _, Prop _ -> 1
 
 let is_prop_sort = function
-| Prop Null -> true
-| _ -> false
+  | Prop Null -> true
+  | _ -> false
+
+let is_set_sort = function
+  | Prop Pos -> true
+  | _ -> false
 
 type sorts_family = InProp | InSet | InType
 
@@ -333,7 +337,7 @@ let rec is_Type c = match kind_of_term c with
 
 let is_small = function
   | Prop _ -> true
-  | _ -> false
+  | Type u -> is_small_univ u
 
 let iskind c = isprop c or is_Type c
 

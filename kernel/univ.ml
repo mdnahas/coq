@@ -36,6 +36,12 @@ module Level = struct
     | Set
     | Level of int * Names.dir_path
 
+  let set = Set
+  let prop = Prop
+  let is_small = function
+    | Level _ -> false
+    | _ -> true
+
   (* A specialized comparison function: we compare the [int] part first.
      This way, most of the time, the [dir_path] part is not considered.
 
@@ -74,6 +80,10 @@ module Level = struct
     | Level (n,d) -> Names.string_of_dirpath d^"."^string_of_int n
 
   let pr u = str (to_string u)
+
+  let is_small = function
+    | Prop | Set -> true
+    | _ -> false
 end
 
 let pr_universe_list l = 
@@ -214,10 +224,16 @@ struct
       let gtl' = CList.uniquize gtl in
 	if gel' == gel && gtl' == gtl then x
 	else normalize (Max (gel', gtl'))
+
+  let is_small u = 
+    match normalize u with
+    | Atom l -> Level.is_small l
+    | _ -> false
     
 end
 
 let pr_uni = Universe.pr
+let is_small_univ = Universe.is_small
 
 open Universe
 

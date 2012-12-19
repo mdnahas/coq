@@ -14,6 +14,10 @@ sig
   (** Type of universe levels. A universe level is essentially a unique name
       that will be associated to constraints later on. *)
 
+  val set : t
+  val prop : t
+  val is_small : t -> bool
+
   val compare : t -> t -> int
   (** Comparison function *)
 
@@ -114,6 +118,7 @@ val type1_univ : universe  (** the universe of the type of Prop/Set *)
 val is_type0_univ : universe -> bool
 val is_type0m_univ : universe -> bool
 val is_univ_variable : universe -> bool
+val is_small_univ : universe -> bool
 
 val universe_level : universe -> universe_level option
 val compare_levels : universe_level -> universe_level -> int
